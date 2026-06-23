@@ -1,0 +1,59 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-wealth-dark: #1a3a3a;
+  --color-wealth-gold: #c9a96e;
+  --color-wealth-cream: #f5f0eb;
+}
+
+body {
+  font-family: 'Noto Sans SC', 'Source Han Sans SC', system-ui, sans-serif;
+  background-color: #f5f0eb;
+  color: #2d2d2d;
+  margin: 0;
+  padding: 0;
+}
+
+/* 自定义滚动条 */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #c9a96e40;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #c9a96e80;
+}
+
+/* 数字动画 */
+@keyframes countUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-count-up {
+  animation: countUp 0.5s ease-out forwards;
+}
+
+/* 卡片悬浮效果 */
+.card-hover {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(26, 58, 58, 0.12);
+}
+
+/* 渐变背景 */
+.gradient-dark {
+  background: linear-gradient(135deg, #1a3a3a 0%, #2d5a5a 100%);
+}
+.gradient-gold {
+  background: linear-gradient(135deg, #c9a96e 0%, #d4b87a 100%);
+}
