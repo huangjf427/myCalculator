@@ -48,10 +48,27 @@ export function Assets() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    let submitData = { ...formData };
+
+    // 银行：计算到期金额 = 金额 × (1 + 期限 × 利率)
+    if (submitData.category === 'bank_deposit') {
+      const term = typeof submitData.term === 'string' ? parseFloat(submitData.term) || 0 : (submitData.term || 0);
+      const amount = submitData.amount || 0;
+      const rate = submitData.interestRate || 0;
+      submitData.maturityAmount = amount * (1 + term * rate);
+    }
+
+    // 证券、理财、其他资产：计算收益 = 现值 - 本金
+    if (submitData.category === 'securities' || submitData.category === 'fund_wealth' || submitData.category === 'other_asset') {
+      const principal = submitData.principal || 0;
+      const currentValue = submitData.currentValue || 0;
+      submitData.profit = currentValue - principal;
+    }
+
     if (editingId) {
-      updateAsset(editingId, formData);
+      updateAsset(editingId, submitData);
     } else {
-      addAsset(formData as CreateAssetInput);
+      addAsset(submitData as CreateAssetInput);
     }
     setShowForm(false);
     setEditingId(null);
@@ -120,6 +137,7 @@ export function Assets() {
             <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">产品名称</th>
             <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">本金</th>
             <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">现值</th>
+            <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">收益</th>
             <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">到期日</th>
             <th className="px-6 py-4 text-right text-sm font-semibold text-wealth-dark">操作</th>
           </>
@@ -132,6 +150,7 @@ export function Assets() {
             <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">产品名称</th>
             <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">本金</th>
             <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">现值</th>
+            <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">收益</th>
             <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">到期日</th>
             <th className="px-6 py-4 text-right text-sm font-semibold text-wealth-dark">操作</th>
           </>
@@ -168,6 +187,7 @@ export function Assets() {
       }
       case 'securities': {
         const securitiesAsset = asset as Securities;
+        const profit = securitiesAsset.currentValue - securitiesAsset.principal;
         return (
           <tr key={asset.id} className="hover:bg-wealth-cream/50 transition-colors">
             <td className="px-6 py-4 text-wealth-text font-medium">{securitiesAsset.institution}</td>
@@ -175,8 +195,8 @@ export function Assets() {
             <td className="px-6 py-4 text-wealth-text">{formatCurrency(securitiesAsset.principal)}</td>
             <td className="px-6 py-4 text-wealth-text font-semibold">{formatCurrency(securitiesAsset.currentValue)}</td>
             <td className="px-6 py-4">
-              <span className={securitiesAsset.profit >= 0 ? 'text-green-600' : 'text-red-600'}>
-                {formatCurrency(securitiesAsset.profit)}
+              <span className={profit >= 0 ? 'text-green-600' : 'text-red-600'}>
+                {formatCurrency(profit)}
               </span>
             </td>
             <td className="px-6 py-4 text-right">
@@ -192,6 +212,7 @@ export function Assets() {
       }
       case 'fund_wealth': {
         const fundAsset = asset as FundWealth;
+        const profit = fundAsset.currentValue - fundAsset.principal;
         return (
           <tr key={asset.id} className="hover:bg-wealth-cream/50 transition-colors">
             <td className="px-6 py-4 text-wealth-text font-medium">{fundAsset.institution}</td>
@@ -199,6 +220,11 @@ export function Assets() {
             <td className="px-6 py-4 text-wealth-text">{fundAsset.productName}</td>
             <td className="px-6 py-4 text-wealth-text">{formatCurrency(fundAsset.principal)}</td>
             <td className="px-6 py-4 text-wealth-text font-semibold">{formatCurrency(fundAsset.currentValue)}</td>
+            <td className="px-6 py-4">
+              <span className={profit >= 0 ? 'text-green-600' : 'text-red-600'}>
+                {formatCurrency(profit)}
+              </span>
+            </td>
             <td className="px-6 py-4 text-wealth-text-light">{fundAsset.maturityDate || '-'}</td>
             <td className="px-6 py-4 text-right">
               <button onClick={() => handleEdit(asset)} className="text-wealth-gold hover:text-wealth-gold-dark mr-3">
@@ -213,6 +239,7 @@ export function Assets() {
       }
       case 'other_asset': {
         const otherAsset = asset as OtherAsset;
+        const profit = otherAsset.currentValue - otherAsset.principal;
         return (
           <tr key={asset.id} className="hover:bg-wealth-cream/50 transition-colors">
             <td className="px-6 py-4 text-wealth-text font-medium">{otherAsset.assetName}</td>
@@ -220,6 +247,11 @@ export function Assets() {
             <td className="px-6 py-4 text-wealth-text">{otherAsset.productName}</td>
             <td className="px-6 py-4 text-wealth-text">{formatCurrency(otherAsset.principal)}</td>
             <td className="px-6 py-4 text-wealth-text font-semibold">{formatCurrency(otherAsset.currentValue)}</td>
+            <td className="px-6 py-4">
+              <span className={profit >= 0 ? 'text-green-600' : 'text-red-600'}>
+                {formatCurrency(profit)}
+              </span>
+            </td>
             <td className="px-6 py-4 text-wealth-text-light">{otherAsset.maturityDate || '-'}</td>
             <td className="px-6 py-4 text-right">
               <button onClick={() => handleEdit(asset)} className="text-wealth-gold hover:text-wealth-gold-dark mr-3">

@@ -6,6 +6,11 @@ interface OtherAssetFormProps {
 }
 
 export function OtherAssetForm({ formData, onChange }: OtherAssetFormProps) {
+  // 收益 = 现值 - 本金
+  const principal = formData.principal || 0;
+  const currentValue = formData.currentValue || 0;
+  const profit = currentValue - principal;
+
   return (
     <>
       <div className="grid grid-cols-2 gap-4">
@@ -46,7 +51,7 @@ export function OtherAssetForm({ formData, onChange }: OtherAssetFormProps) {
           required
         />
       </div>
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 gap-4">
         <div>
           <label className="block text-sm font-medium text-wealth-text mb-2">
             本金 *
@@ -54,23 +59,10 @@ export function OtherAssetForm({ formData, onChange }: OtherAssetFormProps) {
           <input
             type="number"
             value={formData.principal || 0}
-            onChange={(e) => onChange({ ...formData, principal: parseFloat(e.target.value) })}
+            onChange={(e) => onChange({ ...formData, principal: parseFloat(e.target.value) || 0 })}
             className="w-full px-4 py-2 border border-wealth-border rounded-lg focus:outline-none focus:ring-2 focus:ring-wealth-gold"
             required
             min="0"
-            step="0.01"
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-wealth-text mb-2">
-            收益 *
-          </label>
-          <input
-            type="number"
-            value={formData.profit || 0}
-            onChange={(e) => onChange({ ...formData, profit: parseFloat(e.target.value) })}
-            className="w-full px-4 py-2 border border-wealth-border rounded-lg focus:outline-none focus:ring-2 focus:ring-wealth-gold"
-            required
             step="0.01"
           />
         </div>
@@ -81,13 +73,29 @@ export function OtherAssetForm({ formData, onChange }: OtherAssetFormProps) {
           <input
             type="number"
             value={formData.currentValue || 0}
-            onChange={(e) => onChange({ ...formData, currentValue: parseFloat(e.target.value) })}
+            onChange={(e) => onChange({ ...formData, currentValue: parseFloat(e.target.value) || 0 })}
             className="w-full px-4 py-2 border border-wealth-border rounded-lg focus:outline-none focus:ring-2 focus:ring-wealth-gold"
             required
             min="0"
             step="0.01"
           />
         </div>
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-wealth-text mb-2">
+          收益（自动计算：现值 - 本金）
+        </label>
+        <input
+          type="number"
+          value={profit.toFixed(2)}
+          readOnly
+          className={`w-full px-4 py-2 border border-wealth-border rounded-lg bg-gray-50 ${profit >= 0 ? 'text-green-600' : 'text-red-600'}`}
+        />
+        <input
+          type="hidden"
+          value={profit}
+          onChange={() => {}}
+        />
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div>
