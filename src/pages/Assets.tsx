@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useWealthStore } from '@/store/wealthStore';
 import type { AnyAsset, AssetCategory, BankDeposit, Securities, FundWealth, OtherAsset, CreateAssetInput } from '@/types';
-import { Plus, Edit2, Trash2, X } from 'lucide-react';
+import { Plus, Edit2, Trash2, X, Filter, RotateCcw } from 'lucide-react';
 import { BankDepositForm } from '@/components/forms/BankDepositForm';
 import { SecuritiesForm } from '@/components/forms/SecuritiesForm';
 import { FundWealthForm } from '@/components/forms/FundWealthForm';
@@ -14,6 +14,10 @@ export function Assets() {
   const [formData, setFormData] = useState<Partial<AnyAsset>>({
     category: 'bank_deposit',
   });
+  // 筛选状态
+  const [filterInstitution, setFilterInstitution] = useState('');
+  const [filterAccountName, setFilterAccountName] = useState('');
+  const [filterDepositType, setFilterDepositType] = useState<'all' | 'fixed' | 'demand'>('all');
 
   const assets = useWealthStore((state) => state.assets);
   const addAsset = useWealthStore((state) => state.addAsset);
@@ -30,6 +34,10 @@ export function Assets() {
   const handleCategoryChange = (category: AssetCategory) => {
     setSelectedCategory(category);
     setFormData({ category });
+    // 切换分类时重置筛选条件
+    setFilterInstitution('');
+    setFilterAccountName('');
+    setFilterDepositType('all');
   };
 
   const handleAdd = (category: AssetCategory) => {
@@ -89,7 +97,58 @@ export function Assets() {
     }).format(value);
   };
 
-  const filteredAssets = assets.filter((a) => a.category === selectedCategory);
+  // 根据分类获取机构名称字段值
+  const getInstitutionValue = (asset: AnyAsset): string => {
+    switch (asset.category) {
+      case 'bank_deposit': return asset.bankName;
+      case 'securities': return asset.institution;
+      case 'fund_wealth': return asset.institution;
+      case 'other_asset': return asset.assetName;
+    }
+  };
+
+  // 机构名称筛选框标签
+  const institutionLabel = (() => {
+    switch (selectedCategory) {
+      case 'bank_deposit': return '银行名称';
+      case 'securities':
+      case 'fund_wealth': return '机构名称';
+      case 'other_asset': return '资产名称';
+    }
+  })();
+
+  const filteredAssets = assets
+    .filter((a) => a.category === selectedCategory)
+    .filter((a) => {
+      // 机构名称筛选
+      if (filterInstitution.trim()) {
+        const instValue = getInstitutionValue(a) || '';
+        if (!instValue.toLowerCase().includes(filterInstitution.trim().toLowerCase())) {
+          return false;
+        }
+      }
+      // 户名筛选
+      if (filterAccountName.trim()) {
+        if (!(a.accountName || '').toLowerCase().includes(filterAccountName.trim().toLowerCase())) {
+          return false;
+        }
+      }
+      // 定/活期筛选（仅银行存款）
+      if (selectedCategory === 'bank_deposit' && filterDepositType !== 'all') {
+        if ((a as BankDeposit).depositType !== filterDepositType) {
+          return false;
+        }
+      }
+      return true;
+    });
+
+  const hasActiveFilter = filterInstitution.trim() !== '' || filterAccountName.trim() !== '' || filterDepositType !== 'all';
+
+  const handleResetFilters = () => {
+    setFilterInstitution('');
+    setFilterAccountName('');
+    setFilterDepositType('all');
+  };
 
   const renderFormFields = () => {
     switch (selectedCategory) {
@@ -295,9 +354,65 @@ export function Assets() {
         </div>
 
         <div className="p-6">
+          {/* 筛选区域 */}
+          <div className="bg-wealth-cream/30 rounded-xl p-4 mb-4 border border-wealth-border">
+            <div className="flex items-center gap-2 mb-3">
+              <Filter size={16} className="text-wealth-gold" />
+              <span className="text-sm font-medium text-wealth-text">筛选</span>
+              {hasActiveFilter && (
+                <button
+                  onClick={handleResetFilters}
+                  className="ml-auto flex items-center gap-1 text-xs text-wealth-text-light hover:text-wealth-gold transition-colors"
+                >
+                  <RotateCcw size={12} />
+                  重置
+                </button>
+              )}
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-wealth-text-light mb-1">{institutionLabel}</label>
+                <input
+                  type="text"
+                  value={filterInstitution}
+                  onChange={(e) => setFilterInstitution(e.target.value)}
+                  placeholder={`输入${institutionLabel}筛选`}
+                  className="w-full px-3 py-2 text-sm border border-wealth-border rounded-lg focus:outline-none focus:ring-2 focus:ring-wealth-gold bg-white"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-wealth-text-light mb-1">户名</label>
+                <input
+                  type="text"
+                  value={filterAccountName}
+                  onChange={(e) => setFilterAccountName(e.target.value)}
+                  placeholder="输入户名筛选"
+                  className="w-full px-3 py-2 text-sm border border-wealth-border rounded-lg focus:outline-none focus:ring-2 focus:ring-wealth-gold bg-white"
+                />
+              </div>
+              {selectedCategory === 'bank_deposit' && (
+                <div>
+                  <label className="block text-xs font-medium text-wealth-text-light mb-1">定/活期</label>
+                  <select
+                    value={filterDepositType}
+                    onChange={(e) => setFilterDepositType(e.target.value as 'all' | 'fixed' | 'demand')}
+                    className="w-full px-3 py-2 text-sm border border-wealth-border rounded-lg focus:outline-none focus:ring-2 focus:ring-wealth-gold bg-white"
+                  >
+                    <option value="all">全部</option>
+                    <option value="fixed">定期</option>
+                    <option value="demand">活期</option>
+                  </select>
+                </div>
+              )}
+            </div>
+          </div>
+
           <div className="flex justify-between items-center mb-4">
             <div className="text-sm text-wealth-text-light">
               共 {filteredAssets.length} 条记录
+              {hasActiveFilter && assets.filter((a) => a.category === selectedCategory).length !== filteredAssets.length && (
+                <span className="ml-1">（已筛选）</span>
+              )}
             </div>
             <button
               onClick={() => handleAdd(selectedCategory)}

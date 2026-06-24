@@ -1,4 +1,5 @@
 import type { CreditCard } from '@/types';
+import { FormInput, FormDateInput, FormTextarea, FormRow } from '@/components/common';
 
 interface CreditCardFormProps {
   formData: Partial<CreditCard>;
@@ -8,83 +9,49 @@ interface CreditCardFormProps {
 export function CreditCardForm({ formData, onChange }: CreditCardFormProps) {
   return (
     <>
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label className="block text-sm font-medium text-wealth-text mb-2">
-            发卡机构 *
-          </label>
-          <input
-            type="text"
-            value={formData.institution || ''}
-            onChange={(e) => onChange({ ...formData, institution: e.target.value })}
-            className="w-full px-4 py-2 border border-wealth-border rounded-lg focus:outline-none focus:ring-2 focus:ring-wealth-gold"
-            required
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-wealth-text mb-2">
-            户名 *
-          </label>
-          <input
-            type="text"
-            value={formData.accountName || ''}
-            onChange={(e) => onChange({ ...formData, accountName: e.target.value })}
-            className="w-full px-4 py-2 border border-wealth-border rounded-lg focus:outline-none focus:ring-2 focus:ring-wealth-gold"
-            required
-          />
-        </div>
-      </div>
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label className="block text-sm font-medium text-wealth-text mb-2">
-            金额 *
-          </label>
-          <input
-            type="number"
-            value={formData.amount || 0}
-            onChange={(e) => onChange({ ...formData, amount: parseFloat(e.target.value) })}
-            className="w-full px-4 py-2 border border-wealth-border rounded-lg focus:outline-none focus:ring-2 focus:ring-wealth-gold"
-            required
-            min="0"
-            step="0.01"
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-wealth-text mb-2">
-            利率 (%)
-          </label>
-          <input
-            type="number"
-            value={formData.interestRate || ''}
-            onChange={(e) => onChange({ ...formData, interestRate: parseFloat(e.target.value) })}
-            className="w-full px-4 py-2 border border-wealth-border rounded-lg focus:outline-none focus:ring-2 focus:ring-wealth-gold"
-            min="0"
-            step="0.01"
-          />
-        </div>
-      </div>
-      <div>
-        <label className="block text-sm font-medium text-wealth-text mb-2">
-          到期还款日
-        </label>
-        <input
-          type="date"
-          value={formData.repaymentDate || ''}
-          onChange={(e) => onChange({ ...formData, repaymentDate: e.target.value })}
-          className="w-full px-4 py-2 border border-wealth-border rounded-lg focus:outline-none focus:ring-2 focus:ring-wealth-gold"
+      <FormRow>
+        <FormInput
+          label="发卡机构"
+          value={formData.institution || ''}
+          onChange={(value) => onChange({ ...formData, institution: value as string })}
+          required
         />
-      </div>
-      <div>
-        <label className="block text-sm font-medium text-wealth-text mb-2">
-          备注
-        </label>
-        <textarea
-          value={formData.notes || ''}
-          onChange={(e) => onChange({ ...formData, notes: e.target.value })}
-          className="w-full px-4 py-2 border border-wealth-border rounded-lg focus:outline-none focus:ring-2 focus:ring-wealth-gold"
-          rows={3}
+        <FormInput
+          label="户名"
+          value={formData.accountName || ''}
+          onChange={(value) => onChange({ ...formData, accountName: value as string })}
+          required
         />
-      </div>
+      </FormRow>
+      <FormRow>
+        <FormInput
+          label="金额"
+          type="number"
+          value={formData.amount ?? 0}
+          onChange={(value) => onChange({ ...formData, amount: value as number })}
+          required
+          min={0}
+          step="0.01"
+        />
+        <FormInput
+          label="利率 (%)"
+          type="number"
+          value={formData.interestRate ?? ''}
+          onChange={(value) => onChange({ ...formData, interestRate: value as number })}
+          min={0}
+          step="0.01"
+        />
+      </FormRow>
+      <FormDateInput
+        label="到期还款日"
+        value={formData.repaymentDate || ''}
+        onChange={(value) => onChange({ ...formData, repaymentDate: value })}
+      />
+      <FormTextarea
+        label="备注"
+        value={formData.notes || ''}
+        onChange={(value) => onChange({ ...formData, notes: value })}
+      />
     </>
   );
 }
