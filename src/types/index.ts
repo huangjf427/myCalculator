@@ -139,10 +139,10 @@ export type CreateLiabilityInput =
 // 获取资产的金额（用于汇总计算）
 export function getAssetAmount(asset: AnyAsset): number {
   switch (asset.category) {
-    case 'bank_deposit': return asset.amount;
-    case 'securities': return asset.currentValue;
-    case 'fund_wealth': return asset.currentValue;
-    case 'other_asset': return asset.currentValue;
+    case 'bank_deposit': return asset.amount ?? 0;
+    case 'securities': return asset.currentValue ?? 0;
+    case 'fund_wealth': return asset.currentValue ?? 0;
+    case 'other_asset': return asset.currentValue ?? 0;
   }
 }
 
@@ -159,9 +159,9 @@ export function getAssetDisplayName(asset: AnyAsset): string {
 // 获取负债的金额（用于汇总计算）
 export function getLiabilityAmount(liability: AnyLiability): number {
   switch (liability.category) {
-    case 'loan': return liability.liabilityAmount;
-    case 'credit_card': return liability.amount;
-    case 'other_liability': return liability.liabilityAmount;
+    case 'loan': return liability.liabilityAmount ?? 0;
+    case 'credit_card': return liability.amount ?? 0;
+    case 'other_liability': return liability.liabilityAmount ?? 0;
   }
 }
 

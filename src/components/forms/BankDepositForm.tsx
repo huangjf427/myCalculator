@@ -14,12 +14,15 @@ interface BankDepositFormProps {
 }
 
 export function BankDepositForm({ formData, onChange }: BankDepositFormProps) {
-  // 到期金额 = 金额 × (1 + 期限 × 利率)
+  // 期限（年）
   const termValue =
     typeof formData.term === 'string' ? parseFloat(formData.term) || 0 : formData.term || 0;
   const amount = formData.amount || 0;
   const rate = formData.interestRate || 0;
-  const maturityAmount = amount * (1 + termValue * rate);
+  // 到期金额 = 金额 × (1 + 期限 × 利率 / 100)
+  const maturityAmount = amount * (1 + termValue * rate / 100);
+  // 到期日 = 存入日期 + 期限（年）
+  const maturityDate = calcMaturityDate(formData.depositDate, termValue);
 
   return (
     <>
@@ -68,7 +71,7 @@ export function BankDepositForm({ formData, onChange }: BankDepositFormProps) {
           required
         />
         <FormInput
-          label="期限（数值，如年数）"
+          label="期限（年）"
           type="number"
           value={termValue || ''}
           onChange={(value) => onChange({ ...formData, term: String(value) })}
@@ -87,17 +90,15 @@ export function BankDepositForm({ formData, onChange }: BankDepositFormProps) {
           min={0}
           step="0.01"
         />
-        <FormDateInput
-          label="到期日"
-          value={formData.maturityDate || ''}
-          onChange={(value) => onChange({ ...formData, maturityDate: value })}
+        <FormReadOnlyField
+          label="到期日（自动计算：存入日期 + 期限）"
+          value={maturityDate || '-'}
         />
       </FormRow>
       <FormReadOnlyField
-        label="到期金额（自动计算：金额 × (1 + 期限 × 利率)）"
+        label="到期金额（自动计算：金额 × (1 + 期限 × 利率 / 100)）"
         value={maturityAmount}
       />
-      <input type="hidden" value={maturityAmount} readOnly />
       <FormTextarea
         label="备注"
         value={formData.notes || ''}
@@ -105,4 +106,20 @@ export function BankDepositForm({ formData, onChange }: BankDepositFormProps) {
       />
     </>
   );
+}
+
+// 计算到期日：存入日期 + 期限（年，可为小数）
+export function calcMaturityDate(depositDate: string | undefined, termYears: number): string {
+  if (!depositDate) return '';
+  const date = new Date(depositDate);
+  if (isNaN(date.getTime())) return '';
+  const years = Number(termYears) || 0;
+  const wholeYears = Math.floor(years);
+  const months = Math.round((years - wholeYears) * 12);
+  date.setFullYear(date.getFullYear() + wholeYears);
+  if (months > 0) date.setMonth(date.getMonth() + months);
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 }

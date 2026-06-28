@@ -44,21 +44,21 @@ export function Liabilities() {
     setShowForm(true);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (editingId) {
-      updateLiability(editingId, formData);
+      await updateLiability(editingId, formData);
     } else {
-      addLiability(formData as CreateLiabilityInput);
+      await addLiability(formData as CreateLiabilityInput);
     }
     setShowForm(false);
     setEditingId(null);
     setFormData({ category: selectedCategory });
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (confirm('确定删除这条记录吗？')) {
-      deleteLiability(id);
+      await deleteLiability(id);
     }
   };
 

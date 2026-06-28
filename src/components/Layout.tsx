@@ -1,5 +1,5 @@
 import { Outlet, Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Wallet, CreditCard, TrendingUp } from 'lucide-react';
+import { LayoutDashboard, Wallet, CreditCard, TrendingUp, Settings as SettingsIcon } from 'lucide-react';
 
 export function Layout() {
   const location = useLocation();
@@ -9,6 +9,7 @@ export function Layout() {
     { path: '/assets', icon: Wallet, label: '资产管理' },
     { path: '/liabilities', icon: CreditCard, label: '负债管理' },
     { path: '/analysis', icon: TrendingUp, label: '统计分析' },
+    { path: '/settings', icon: SettingsIcon, label: '设置' },
   ];
 
   return (

@@ -4,37 +4,57 @@
 
 ```mermaid
 flowchart TB
-    subgraph Frontend["前端层"]
+    subgraph Renderer["渲染进程（React）"]
         UI["React 18 组件"]
         State["Zustand 状态管理"]
-        Router["React Router 路由"]
+        Router["React Router 路由 (HashRouter)"]
         Charts["Recharts 图表库"]
+        Preload["preload.cjs (window.electronAPI)"]
     end
-    
-    subgraph Data["数据层"]
-        LocalStorage["LocalStorage 持久化"]
-        DataModel["TypeScript 数据模型"]
-        ChangeLog["变动记录（最多 50 条）"]
+
+    subgraph Main["主进程（Electron）"]
+        MainProc["main.cjs"]
+        Config["config.cjs 配置管理"]
+        DbLayer["db.cjs 数据库层"]
     end
-    
+
+    subgraph Storage["持久化层"]
+        SQLite["SQLite 文件 (sql.js / WASM)"]
+        ConfigFile["config.json"]
+        LocalStorage["LocalStorage（浏览器回退）"]
+    end
+
     UI --> State
-    State --> LocalStorage
-    State --> DataModel
-    State --> ChangeLog
+    State --> Preload
+    Preload -- "IPC (contextBridge)" --> MainProc
+    MainProc --> Config
+    MainProc --> DbLayer
+    Config --> ConfigFile
+    DbLayer --> SQLite
+    State -. "开发模式回退" .-> LocalStorage
     Router --> UI
     Charts --> UI
 ```
 
+应用为 Electron 桌面应用，采用双进程架构：
+
+- **渲染进程**：React 应用通过 `window.electronAPI`（preload 暴露）发起 IPC 调用
+- **主进程**：处理 IPC 请求，操作 SQLite 文件与配置文件
+- **持久化层**：SQLite 数据库文件 + config.json 配置文件，均位于 `%APPDATA%/wealth-tracker/`
+- **浏览器回退**：开发模式下若不在 Electron 环境中，自动回退到 LocalStorage
+
 ## 2. 技术描述
 
-- **前端**：React 18 + TypeScript + Vite
+- **前端**：React 18 + TypeScript + Vite 6
 - **样式**：Tailwind CSS 3
-- **状态管理**：Zustand（轻量级，适合单用户应用）
-- **图表库**：Recharts（React 原生图表库）
-- **路由**：React Router v6
+- **状态管理**：Zustand 5（轻量级，适合单用户应用）
+- **图表库**：Recharts 2（React 原生图表库）
+- **路由**：React Router v6（HashRouter，兼容 Electron file:// 协议）
 - **图标库**：lucide-react（线性图标）
-- **数据持久化**：LocalStorage（无需后端，数据存本地）
-- **后端**：无（纯前端应用）
+- **桌面框架**：Electron 42.3.0
+- **数据库**：sql.js（SQLite 的纯 WASM 实现，无需原生编译）
+- **构建/打包**：electron-builder 25
+- **数据持久化**：SQLite 文件（默认 `%APPDATA%/wealth-tracker/wealth-tracker.db`，位置可通过设置修改）
 - **初始化**：Vite + React + TypeScript 模板
 
 ## 3. 路由定义
@@ -45,12 +65,26 @@ flowchart TB
 | `/assets` | 资产管理（银行存款、证券投资、理财基金、其他资产） |
 | `/liabilities` | 负债管理（贷款、信用卡、其他负债） |
 | `/analysis` | 统计分析与图表 |
+| `/settings` | 设置（数据库文件存放位置） |
 
 ## 4. API 定义
 
-本应用为纯前端，无后端 API。数据通过 Zustand store 管理并持久化到 LocalStorage。
+本应用为 Electron 桌面应用，渲染进程通过 IPC（`ipcRenderer.invoke`）与主进程通信。preload.cjs 通过 `contextBridge` 暴露 `window.electronAPI`，包含 `db` 与 `config` 两个命名空间。浏览器开发模式下若 `electronAPI` 不存在，store 自动回退到 LocalStorage。
 
-### 4.1 数据模型类型定义
+### 4.1 IPC 通道
+
+| 通道 | 方向 | 用途 |
+|------|------|------|
+| `db:getAllAssets` / `db:addAsset` / `db:updateAsset` / `db:deleteAsset` | 渲染→主 | 资产 CRUD |
+| `db:getAllLiabilities` / `db:addLiability` / `db:updateLiability` / `db:deleteLiability` | 渲染→主 | 负债 CRUD |
+| `db:getAllChanges` / `db:addChange` | 渲染→主 | 变动记录读写 |
+| `db:migrate` | 渲染→主 | 从 LocalStorage 迁移历史数据到 SQLite |
+| `config:getDbPath` | 渲染→主 | 读取当前数据库文件路径 |
+| `config:getDefaultDbPath` | 渲染→主 | 读取默认数据库路径 |
+| `config:selectFolder` | 渲染→主 | 弹出文件夹选择对话框 |
+| `config:setDbPath` | 渲染→主 | 设置新数据库路径，并触发 `db.reloadDb()` 重新加载 |
+
+### 4.2 数据模型类型定义
 
 ```typescript
 // 资产类别
@@ -68,9 +102,9 @@ interface BankDeposit {
   depositType: 'demand' | 'fixed'; // 定/活期
   amount: number;          // 金额
   depositDate: string;     // 存入日期
-  term?: string;           // 期限
-  interestRate?: number;   // 利率
-  maturityDate?: string;   // 到期日
+  term?: string;           // 期限（单位：年，可为小数）
+  interestRate?: number;   // 利率（百分比，如 3 表示 3%）
+  maturityDate?: string;   // 到期日（自动计算：存入日期 + 期限）
   maturityAmount?: number; // 到期金额（自动计算）
   notes?: string;          // 备注
   createdAt: string;
@@ -211,32 +245,38 @@ interface FinancialSummary {
 }
 ```
 
-### 4.2 自动计算规则
+### 4.3 自动计算规则
 
 | 资产类别 | 计算字段 | 计算公式 |
 |----------|----------|----------|
-| 银行存款 | maturityAmount（到期金额） | amount × (1 + term × interestRate) |
+| 银行存款 | maturityDate（到期日） | depositDate + term（年），支持小数年（0.5 年 = 6 个月） |
+| 银行存款 | maturityAmount（到期金额） | amount × (1 + term × interestRate / 100)，利率按百分比输入 |
 | 证券投资 | profit（收益） | currentValue - principal |
 | 理财和基金 | profit（收益） | currentValue - principal |
 | 其他资产 | profit（收益） | currentValue - principal |
 
-### 4.3 Store 接口定义
+### 4.4 Store 接口定义
 
 ```typescript
 interface WealthState {
   assets: AnyAsset[];
   liabilities: AnyLiability[];
   changes: ChangeRecord[];
+  initialized: boolean;
 
-  // 资产 CRUD
-  addAsset: (asset: CreateAssetInput) => void;
-  updateAsset: (id: string, asset: Partial<AnyAsset>) => void;
-  deleteAsset: (id: string) => void;
+  // 初始化与重载
+  init: () => Promise<void>;          // 首次加载（含 LocalStorage→SQLite 迁移）
+  reload: () => Promise<void>;        // 切换数据库路径后重新加载
 
-  // 负债 CRUD
-  addLiability: (liability: CreateLiabilityInput) => void;
-  updateLiability: (id: string, liability: Partial<AnyLiability>) => void;
-  deleteLiability: (id: string) => void;
+  // 资产 CRUD（异步，返回 Promise）
+  addAsset: (asset: CreateAssetInput) => Promise<void>;
+  updateAsset: (id: string, asset: Partial<AnyAsset>) => Promise<void>;
+  deleteAsset: (id: string) => Promise<void>;
+
+  // 负债 CRUD（异步，返回 Promise）
+  addLiability: (liability: CreateLiabilityInput) => Promise<void>;
+  updateLiability: (id: string, liability: Partial<AnyLiability>) => Promise<void>;
+  deleteLiability: (id: string) => Promise<void>;
 
   // 汇总计算
   getSummary: () => FinancialSummary;
@@ -247,9 +287,11 @@ interface WealthState {
 
 每次 CRUD 操作都会生成一条 `ChangeRecord` 并写入 `changes` 数组（保留最近 50 条），用于仪表盘「近期变动」展示。
 
+**双模式运行**：Store 通过 `isElectron = !!window.electronAPI` 检测运行环境。Electron 模式下所有 CRUD 通过 IPC 调用主进程操作 SQLite；浏览器开发模式下回退到 LocalStorage，便于脱离 Electron 调试。
+
 ## 5. 服务器架构图
 
-不适用（纯前端应用，无服务器）
+不适用（Electron 桌面应用，无独立服务器。主进程兼任本地数据服务角色，通过 IPC 与渲染进程通信）
 
 ## 6. 数据模型
 
@@ -372,7 +414,44 @@ erDiagram
 
 ### 6.2 数据存储方式
 
-使用 LocalStorage 存储 JSON 格式数据：
+采用 sql.js（SQLite 纯 WASM 实现）持久化数据，数据库文件默认位于 `%APPDATA%/wealth-tracker/wealth-tracker.db`，路径可通过「设置」页面修改。配置文件 `config.json` 始终存于 `%APPDATA%/wealth-tracker/`。
+
+**SQLite 建表语句（db.cjs 中执行）：**
+
+```sql
+-- 资产表（所有类别共用，data 字段存 JSON）
+CREATE TABLE IF NOT EXISTS assets (
+  id TEXT PRIMARY KEY,
+  category TEXT NOT NULL,
+  data TEXT NOT NULL,
+  createdAt TEXT,
+  updatedAt TEXT
+);
+
+-- 负债表
+CREATE TABLE IF NOT EXISTS liabilities (
+  id TEXT PRIMARY KEY,
+  category TEXT NOT NULL,
+  data TEXT NOT NULL,
+  createdAt TEXT,
+  updatedAt TEXT
+);
+
+-- 变动记录表
+CREATE TABLE IF NOT EXISTS changes (
+  id TEXT PRIMARY KEY,
+  type TEXT,
+  target TEXT,
+  name TEXT,
+  category TEXT,
+  amount REAL,
+  timestamp TEXT
+);
+```
+
+**防抖保存**：写入操作后延迟 300ms 批量持久化到 db 文件，避免频繁 IO。
+
+**LocalStorage 回退键名**（仅浏览器开发模式）：
 
 ```typescript
 const STORAGE_KEYS = {
@@ -382,14 +461,26 @@ const STORAGE_KEYS = {
 };
 ```
 
-无需 DDL 语句（无数据库）。
+**配置文件 config.json 结构：**
+
+```json
+{
+  "dbPath": "C:\\Users\\<user>\\AppData\\Roaming\\wealth-tracker\\wealth-tracker.db"
+}
+```
 
 ## 7. 组件结构
 
 ```
+electron/                        # Electron 主进程
+├── main.cjs                     # 主进程入口（窗口、IPC 注册）
+├── preload.cjs                  # 预加载脚本（暴露 window.electronAPI）
+├── db.cjs                       # SQLite 数据库层（建表、CRUD、防抖保存、reloadDb）
+└── config.cjs                   # 配置管理（dbPath 读写、文件夹选择）
+
 src/
 ├── components/
-│   ├── common/              # 通用表单组件
+│   ├── common/                  # 通用表单组件
 │   │   ├── FormInput.tsx
 │   │   ├── FormDateInput.tsx
 │   │   ├── FormSelect.tsx
@@ -398,24 +489,25 @@ src/
 │   │   ├── FormReadOnlyField.tsx
 │   │   ├── FormRow.tsx
 │   │   └── index.ts
-│   ├── forms/               # 各分类录入表单
-│   │   ├── BankDepositForm.tsx
+│   ├── forms/                   # 各分类录入表单
+│   │   ├── BankDepositForm.tsx  # 含 calcMaturityDate 导出（存入日期+期限计算到期日）
 │   │   ├── SecuritiesForm.tsx
 │   │   ├── FundWealthForm.tsx
 │   │   ├── OtherAssetForm.tsx
 │   │   ├── LoanForm.tsx
 │   │   ├── CreditCardForm.tsx
 │   │   └── OtherLiabilityForm.tsx
-│   └── Layout.tsx           # 全局布局（左侧导航 + 右侧内容）
+│   └── Layout.tsx               # 全局布局（左侧导航 + 右侧内容）
 ├── pages/
-│   ├── Dashboard.tsx        # 仪表盘总览
-│   ├── Assets.tsx           # 资产管理（含筛选功能）
-│   ├── Liabilities.tsx      # 负债管理
-│   └── Analysis.tsx         # 统计分析
+│   ├── Dashboard.tsx            # 仪表盘总览
+│   ├── Assets.tsx               # 资产管理（含筛选功能、自动计算到期日/到期金额/收益）
+│   ├── Liabilities.tsx          # 负债管理
+│   ├── Analysis.tsx             # 统计分析
+│   └── Settings.tsx             # 设置（数据库位置管理）
 ├── store/
-│   └── wealthStore.ts       # Zustand 状态管理
+│   └── wealthStore.ts           # Zustand 状态管理（双模式、init/reload）
 └── types/
-    └── index.ts             # TypeScript 类型定义
+    └── index.ts                 # TypeScript 类型定义
 ```
 
 ## 8. 资产筛选功能实现
@@ -451,3 +543,69 @@ const [filterDepositType, setFilterDepositType] = useState<'all' | 'fixed' | 'de
 - 筛选区域始终展示，定/活期筛选项仅在银行存款分类下显示
 - 有任意筛选生效时显示「重置」按钮
 - 记录数显示「（已筛选）」标识
+
+## 9. 设置功能实现（数据库位置管理）
+
+### 9.1 模块分工
+
+| 模块 | 职责 |
+|------|------|
+| `electron/config.cjs` | 读写 `config.json`、提供 `getDbPath/setDbPath/getDefaultDbPath/selectFolder` |
+| `electron/db.cjs` | `getDb()` 从 config 读取路径；`reloadDb()` 重置连接并重新加载 |
+| `electron/main.cjs` | `registerConfigHandlers()` 注册 4 个 config IPC handler |
+| `electron/preload.cjs` | 暴露 `window.electronAPI.config` |
+| `src/pages/Settings.tsx` | 设置页面 UI，调用 config API 并触发 `store.reload()` |
+| `src/store/wealthStore.ts` | `reload()` 重新从 SQLite 读取数据刷新状态 |
+
+### 9.2 切换数据库位置流程
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Settings as Settings.tsx
+    participant Preload
+    participant Main as main.cjs
+    participant Config as config.cjs
+    participant Db as db.cjs
+    participant Store as wealthStore
+
+    User->>Settings: 点击「选择新位置」
+    Settings->>Preload: config.selectFolder()
+    Preload->>Main: config:selectFolder (IPC)
+    Main->>Config: dialog.showOpenDialogSync()
+    Config-->>Main: folder path
+    Main-->>Preload: folder
+    Preload-->>Settings: folder
+    Settings->>Preload: config.setDbPath(folder + "wealth-tracker.db")
+    Preload->>Main: config:setDbPath (IPC)
+    Main->>Config: setDbPath()
+    Config->>Config: 写入 config.json
+    Main->>Db: reloadDb()（清空缓存连接）
+    Db->>Db: 从新路径加载/创建 SQLite 文件
+    Main-->>Preload: 完成
+    Preload-->>Settings: 成功
+    Settings->>Store: reload()
+    Store->>Preload: db.getAllAssets/Liabilities/Changes
+    Store->>Store: set({ ...data })
+```
+
+### 9.3 注意事项
+
+- 配置文件 `config.json` 始终位于 `%APPDATA%/wealth-tracker/`，不随数据库位置变化
+- 切换位置后**不会自动迁移**原数据库内容，用户需手动复制 `wealth-tracker.db` 文件
+- 新位置若不存在 db 文件，自动创建空数据库并初始化表结构
+- `reload()` 不执行 LocalStorage 迁移逻辑（仅 `init()` 首次启动时执行）
+
+## 10. 构建与打包
+
+| 命令 | 用途 |
+|------|------|
+| `npm run dev` | 启动 Vite 开发服务器（纯浏览器模式，LocalStorage 回退） |
+| `npm run dev:electron` | Electron 开发模式（同时启动 Vite 与 Electron） |
+| `npm run build:win:dir` | 打包为 Windows 目录版（输出到 `dist-electron/win-unpacked/`） |
+| `npm run build:win:portable` | 打包为单文件 portable exe（需 NSIS） |
+
+**打包配置要点**（package.json build 字段）：
+- `build.files` 需包含 `node_modules/sql.js/dist/**/*`（sql.js 的 WASM 文件）
+- `build.directories.output` 设为 `dist-electron`（避免旧目录占用导致打包失败）
+- 主进程文件需使用完整文件名 `require('./db.cjs')`（不能省略 `.cjs` 扩展名）

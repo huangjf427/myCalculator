@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useWealthStore } from '@/store/wealthStore';
 import type { AnyAsset, AssetCategory, BankDeposit, Securities, FundWealth, OtherAsset, CreateAssetInput } from '@/types';
 import { Plus, Edit2, Trash2, X, Filter, RotateCcw } from 'lucide-react';
-import { BankDepositForm } from '@/components/forms/BankDepositForm';
+import { BankDepositForm, calcMaturityDate } from '@/components/forms/BankDepositForm';
 import { SecuritiesForm } from '@/components/forms/SecuritiesForm';
 import { FundWealthForm } from '@/components/forms/FundWealthForm';
 import { OtherAssetForm } from '@/components/forms/OtherAssetForm';
@@ -54,16 +54,17 @@ export function Assets() {
     setShowForm(true);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     let submitData = { ...formData };
 
-    // 银行：计算到期金额 = 金额 × (1 + 期限 × 利率)
+    // 银行：计算到期日和到期金额
     if (submitData.category === 'bank_deposit') {
       const term = typeof submitData.term === 'string' ? parseFloat(submitData.term) || 0 : (submitData.term || 0);
       const amount = submitData.amount || 0;
       const rate = submitData.interestRate || 0;
-      submitData.maturityAmount = amount * (1 + term * rate);
+      submitData.maturityAmount = amount * (1 + term * rate / 100);
+      submitData.maturityDate = calcMaturityDate(submitData.depositDate, term);
     }
 
     // 证券、理财、其他资产：计算收益 = 现值 - 本金
@@ -74,18 +75,18 @@ export function Assets() {
     }
 
     if (editingId) {
-      updateAsset(editingId, submitData);
+      await updateAsset(editingId, submitData);
     } else {
-      addAsset(submitData as CreateAssetInput);
+      await addAsset(submitData as CreateAssetInput);
     }
     setShowForm(false);
     setEditingId(null);
     setFormData({ category: selectedCategory });
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (confirm('确定删除这条记录吗？')) {
-      deleteAsset(id);
+      await deleteAsset(id);
     }
   };
 

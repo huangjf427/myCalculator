@@ -6,6 +6,11 @@ import type {
 } from '@/types';
 import { getAssetAmount, getAssetDisplayName, getLiabilityAmount, getLiabilityDisplayName } from '@/types';
 
+// 检测是否在 Electron 环境中
+const electronAPI = typeof window !== 'undefined' ? window.electronAPI : undefined;
+const isElectron = !!electronAPI;
+
+// localStorage 回退（浏览器开发模式）
 const STORAGE_KEYS = {
   ASSETS: 'wealth_tracker_assets',
   LIABILITIES: 'wealth_tracker_liabilities',
@@ -15,7 +20,7 @@ const STORAGE_KEYS = {
 function loadFromStorage<T>(key: string, fallback: T): T {
   try {
     const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) as T : fallback;
+    return raw ? (JSON.parse(raw) as T) : fallback;
   } catch {
     return fallback;
   }
@@ -29,20 +34,68 @@ function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
 
+// 加载数据：Electron 模式从 SQLite 读取（含迁移），浏览器模式从 localStorage 读取
+async function loadData(): Promise<{ assets: AnyAsset[]; liabilities: AnyLiability[]; changes: ChangeRecord[] }> {
+  if (isElectron) {
+    try {
+      // 尝试从 localStorage 迁移数据到 SQLite
+      const localAssets = loadFromStorage<AnyAsset[]>(STORAGE_KEYS.ASSETS, []);
+      const localLiabilities = loadFromStorage<AnyLiability[]>(STORAGE_KEYS.LIABILITIES, []);
+      const localChanges = loadFromStorage<ChangeRecord[]>(STORAGE_KEYS.CHANGES, []);
+
+      if (localAssets.length > 0 || localLiabilities.length > 0) {
+        const migrated = await electronAPI!.db.migrate({
+          assets: localAssets,
+          liabilities: localLiabilities,
+          changes: localChanges,
+        });
+        if (migrated) {
+          // 迁移成功，清理 localStorage
+          localStorage.removeItem(STORAGE_KEYS.ASSETS);
+          localStorage.removeItem(STORAGE_KEYS.LIABILITIES);
+          localStorage.removeItem(STORAGE_KEYS.CHANGES);
+        }
+      }
+
+      const assets = await electronAPI!.db.getAllAssets();
+      const liabilities = await electronAPI!.db.getAllLiabilities();
+      const changes = await electronAPI!.db.getAllChanges();
+      return { assets, liabilities, changes };
+    } catch (e) {
+      console.error('数据库初始化失败，回退到 localStorage', e);
+      return {
+        assets: loadFromStorage(STORAGE_KEYS.ASSETS, []),
+        liabilities: loadFromStorage(STORAGE_KEYS.LIABILITIES, []),
+        changes: loadFromStorage(STORAGE_KEYS.CHANGES, []),
+      };
+    }
+  } else {
+    // 浏览器模式：使用 localStorage
+    return {
+      assets: loadFromStorage(STORAGE_KEYS.ASSETS, []),
+      liabilities: loadFromStorage(STORAGE_KEYS.LIABILITIES, []),
+      changes: loadFromStorage(STORAGE_KEYS.CHANGES, []),
+    };
+  }
+}
+
 interface WealthState {
   assets: AnyAsset[];
   liabilities: AnyLiability[];
   changes: ChangeRecord[];
+  initialized: boolean;
 
+  init: () => Promise<void>;
+  reload: () => Promise<void>;
   // 资产操作
-  addAsset: (asset: CreateAssetInput) => void;
-  updateAsset: (id: string, asset: Partial<AnyAsset>) => void;
-  deleteAsset: (id: string) => void;
+  addAsset: (asset: CreateAssetInput) => Promise<void>;
+  updateAsset: (id: string, asset: Partial<AnyAsset>) => Promise<void>;
+  deleteAsset: (id: string) => Promise<void>;
 
   // 负债操作
-  addLiability: (liability: CreateLiabilityInput) => void;
-  updateLiability: (id: string, liability: Partial<AnyLiability>) => void;
-  deleteLiability: (id: string) => void;
+  addLiability: (liability: CreateLiabilityInput) => Promise<void>;
+  updateLiability: (id: string, liability: Partial<AnyLiability>) => Promise<void>;
+  deleteLiability: (id: string) => Promise<void>;
 
   // 计算
   getSummary: () => {
@@ -67,150 +120,193 @@ interface WealthState {
 }
 
 export const useWealthStore = create<WealthState>((set, get) => ({
-  assets: loadFromStorage<AnyAsset[]>(STORAGE_KEYS.ASSETS, []),
-  liabilities: loadFromStorage<AnyLiability[]>(STORAGE_KEYS.LIABILITIES, []),
-  changes: loadFromStorage<ChangeRecord[]>(STORAGE_KEYS.CHANGES, []),
+  assets: [],
+  liabilities: [],
+  changes: [],
+  initialized: false,
 
-  addAsset: (asset) => {
+  init: async () => {
+    if (get().initialized) return;
+    const data = await loadData();
+    set({ ...data, initialized: true });
+  },
+
+  reload: async () => {
+    // 切换数据库路径后重新加载数据（不执行迁移）
+    const data = await loadData();
+    set({ ...data });
+  },
+
+  addAsset: async (asset) => {
     const now = new Date().toISOString();
     const newAsset = { ...asset, id: generateId(), createdAt: now, updatedAt: now } as AnyAsset;
-    set((state) => {
-      const assets = [...state.assets, newAsset];
-      saveToStorage(STORAGE_KEYS.ASSETS, assets);
-      const change: ChangeRecord = {
-        id: generateId(),
-        type: 'add',
-        target: 'asset',
-        name: getAssetDisplayName(newAsset),
-        category: newAsset.category,
-        amount: getAssetAmount(newAsset),
-        timestamp: now,
-      };
-      const changes = [change, ...state.changes].slice(0, 50);
-      saveToStorage(STORAGE_KEYS.CHANGES, changes);
-      return { assets, changes };
-    });
+    const change: ChangeRecord = {
+      id: generateId(),
+      type: 'add',
+      target: 'asset',
+      name: getAssetDisplayName(newAsset),
+      category: newAsset.category,
+      amount: getAssetAmount(newAsset),
+      timestamp: now,
+    };
+
+    if (isElectron) {
+      await electronAPI!.db.addAsset(asset);
+      await electronAPI!.db.addChange(change);
+    } else {
+      saveToStorage(STORAGE_KEYS.ASSETS, [...get().assets, newAsset]);
+      saveToStorage(STORAGE_KEYS.CHANGES, [change, ...get().changes].slice(0, 50));
+    }
+
+    set((state) => ({
+      assets: [...state.assets, newAsset],
+      changes: [change, ...state.changes].slice(0, 50),
+    }));
   },
 
-  updateAsset: (id, updates) => {
+  updateAsset: async (id, updates) => {
     const now = new Date().toISOString();
-    set((state) => {
-      const assets = state.assets.map((a) =>
-        a.id === id ? { ...a, ...updates, updatedAt: now } as AnyAsset : a
-      );
+    const existing = get().assets.find((a) => a.id === id);
+    if (!existing) return;
+    const updated = { ...existing, ...updates, updatedAt: now } as AnyAsset;
+    const change: ChangeRecord = {
+      id: generateId(),
+      type: 'edit',
+      target: 'asset',
+      name: getAssetDisplayName(updated),
+      category: updated.category,
+      amount: getAssetAmount(updated),
+      timestamp: now,
+    };
+
+    if (isElectron) {
+      await electronAPI!.db.updateAsset(id, updates);
+      await electronAPI!.db.addChange(change);
+    } else {
+      const assets = get().assets.map((a) => (a.id === id ? updated : a));
       saveToStorage(STORAGE_KEYS.ASSETS, assets);
-      const target = assets.find((a) => a.id === id);
-      if (target) {
-        const change: ChangeRecord = {
-          id: generateId(),
-          type: 'edit',
-          target: 'asset',
-          name: getAssetDisplayName(target),
-          category: target.category,
-          amount: getAssetAmount(target),
-          timestamp: now,
-        };
-        const changes = [change, ...state.changes].slice(0, 50);
-        saveToStorage(STORAGE_KEYS.CHANGES, changes);
-        return { assets, changes };
-      }
-      return { assets };
-    });
+      saveToStorage(STORAGE_KEYS.CHANGES, [change, ...get().changes].slice(0, 50));
+    }
+
+    set((state) => ({
+      assets: state.assets.map((a) => (a.id === id ? updated : a)),
+      changes: [change, ...state.changes].slice(0, 50),
+    }));
   },
 
-  deleteAsset: (id) => {
+  deleteAsset: async (id) => {
     const now = new Date().toISOString();
-    set((state) => {
-      const target = state.assets.find((a) => a.id === id);
-      const assets = state.assets.filter((a) => a.id !== id);
+    const target = get().assets.find((a) => a.id === id);
+    if (!target) return;
+    const change: ChangeRecord = {
+      id: generateId(),
+      type: 'delete',
+      target: 'asset',
+      name: getAssetDisplayName(target),
+      category: target.category,
+      amount: getAssetAmount(target),
+      timestamp: now,
+    };
+
+    if (isElectron) {
+      await electronAPI!.db.deleteAsset(id);
+      await electronAPI!.db.addChange(change);
+    } else {
+      const assets = get().assets.filter((a) => a.id !== id);
       saveToStorage(STORAGE_KEYS.ASSETS, assets);
-      if (target) {
-        const change: ChangeRecord = {
-          id: generateId(),
-          type: 'delete',
-          target: 'asset',
-          name: getAssetDisplayName(target),
-          category: target.category,
-          amount: getAssetAmount(target),
-          timestamp: now,
-        };
-        const changes = [change, ...state.changes].slice(0, 50);
-        saveToStorage(STORAGE_KEYS.CHANGES, changes);
-        return { assets, changes };
-      }
-      return { assets };
-    });
+      saveToStorage(STORAGE_KEYS.CHANGES, [change, ...get().changes].slice(0, 50));
+    }
+
+    set((state) => ({
+      assets: state.assets.filter((a) => a.id !== id),
+      changes: [change, ...state.changes].slice(0, 50),
+    }));
   },
 
-  addLiability: (liability) => {
+  addLiability: async (liability) => {
     const now = new Date().toISOString();
     const newLiability = { ...liability, id: generateId(), createdAt: now, updatedAt: now } as AnyLiability;
-    set((state) => {
-      const liabilities = [...state.liabilities, newLiability];
-      saveToStorage(STORAGE_KEYS.LIABILITIES, liabilities);
-      const change: ChangeRecord = {
-        id: generateId(),
-        type: 'add',
-        target: 'liability',
-        name: getLiabilityDisplayName(newLiability),
-        category: newLiability.category,
-        amount: getLiabilityAmount(newLiability),
-        timestamp: now,
-      };
-      const changes = [change, ...state.changes].slice(0, 50);
-      saveToStorage(STORAGE_KEYS.CHANGES, changes);
-      return { liabilities, changes };
-    });
+    const change: ChangeRecord = {
+      id: generateId(),
+      type: 'add',
+      target: 'liability',
+      name: getLiabilityDisplayName(newLiability),
+      category: newLiability.category,
+      amount: getLiabilityAmount(newLiability),
+      timestamp: now,
+    };
+
+    if (isElectron) {
+      await electronAPI!.db.addLiability(liability);
+      await electronAPI!.db.addChange(change);
+    } else {
+      saveToStorage(STORAGE_KEYS.LIABILITIES, [...get().liabilities, newLiability]);
+      saveToStorage(STORAGE_KEYS.CHANGES, [change, ...get().changes].slice(0, 50));
+    }
+
+    set((state) => ({
+      liabilities: [...state.liabilities, newLiability],
+      changes: [change, ...state.changes].slice(0, 50),
+    }));
   },
 
-  updateLiability: (id, updates) => {
+  updateLiability: async (id, updates) => {
     const now = new Date().toISOString();
-    set((state) => {
-      const liabilities = state.liabilities.map((l) =>
-        l.id === id ? { ...l, ...updates, updatedAt: now } as AnyLiability : l
-      );
+    const existing = get().liabilities.find((l) => l.id === id);
+    if (!existing) return;
+    const updated = { ...existing, ...updates, updatedAt: now } as AnyLiability;
+    const change: ChangeRecord = {
+      id: generateId(),
+      type: 'edit',
+      target: 'liability',
+      name: getLiabilityDisplayName(updated),
+      category: updated.category,
+      amount: getLiabilityAmount(updated),
+      timestamp: now,
+    };
+
+    if (isElectron) {
+      await electronAPI!.db.updateLiability(id, updates);
+      await electronAPI!.db.addChange(change);
+    } else {
+      const liabilities = get().liabilities.map((l) => (l.id === id ? updated : l));
       saveToStorage(STORAGE_KEYS.LIABILITIES, liabilities);
-      const target = liabilities.find((l) => l.id === id);
-      if (target) {
-        const change: ChangeRecord = {
-          id: generateId(),
-          type: 'edit',
-          target: 'liability',
-          name: getLiabilityDisplayName(target),
-          category: target.category,
-          amount: getLiabilityAmount(target),
-          timestamp: now,
-        };
-        const changes = [change, ...state.changes].slice(0, 50);
-        saveToStorage(STORAGE_KEYS.CHANGES, changes);
-        return { liabilities, changes };
-      }
-      return { liabilities };
-    });
+      saveToStorage(STORAGE_KEYS.CHANGES, [change, ...get().changes].slice(0, 50));
+    }
+
+    set((state) => ({
+      liabilities: state.liabilities.map((l) => (l.id === id ? updated : l)),
+      changes: [change, ...state.changes].slice(0, 50),
+    }));
   },
 
-  deleteLiability: (id) => {
+  deleteLiability: async (id) => {
     const now = new Date().toISOString();
-    set((state) => {
-      const target = state.liabilities.find((l) => l.id === id);
-      const liabilities = state.liabilities.filter((l) => l.id !== id);
+    const target = get().liabilities.find((l) => l.id === id);
+    if (!target) return;
+    const change: ChangeRecord = {
+      id: generateId(),
+      type: 'delete',
+      target: 'liability',
+      name: getLiabilityDisplayName(target),
+      category: target.category,
+      amount: getLiabilityAmount(target),
+      timestamp: now,
+    };
+
+    if (isElectron) {
+      await electronAPI!.db.deleteLiability(id);
+      await electronAPI!.db.addChange(change);
+    } else {
+      const liabilities = get().liabilities.filter((l) => l.id !== id);
       saveToStorage(STORAGE_KEYS.LIABILITIES, liabilities);
-      if (target) {
-        const change: ChangeRecord = {
-          id: generateId(),
-          type: 'delete',
-          target: 'liability',
-          name: getLiabilityDisplayName(target),
-          category: target.category,
-          amount: getLiabilityAmount(target),
-          timestamp: now,
-        };
-        const changes = [change, ...state.changes].slice(0, 50);
-        saveToStorage(STORAGE_KEYS.CHANGES, changes);
-        return { liabilities, changes };
-      }
-      return { liabilities };
-    });
+      saveToStorage(STORAGE_KEYS.CHANGES, [change, ...get().changes].slice(0, 50));
+    }
+
+    set((state) => ({
+      liabilities: state.liabilities.filter((l) => l.id !== id),
+      changes: [change, ...state.changes].slice(0, 50),
+    }));
   },
 
   getSummary: () => {
@@ -244,3 +340,32 @@ export const useWealthStore = create<WealthState>((set, get) => ({
     return get().liabilities.filter((l) => l.category === category);
   },
 }));
+
+// 全局类型声明
+declare global {
+  interface Window {
+    electronAPI?: {
+      isElectron: boolean;
+      platform: string;
+      db: {
+        getAllAssets: () => Promise<any[]>;
+        addAsset: (asset: any) => Promise<any>;
+        updateAsset: (id: string, updates: any) => Promise<any>;
+        deleteAsset: (id: string) => Promise<any>;
+        getAllLiabilities: () => Promise<any[]>;
+        addLiability: (liability: any) => Promise<any>;
+        updateLiability: (id: string, updates: any) => Promise<any>;
+        deleteLiability: (id: string) => Promise<any>;
+        getAllChanges: () => Promise<any[]>;
+        addChange: (change: any) => Promise<any>;
+        migrate: (data: { assets: any[]; liabilities: any[]; changes: any[] }) => Promise<boolean>;
+      };
+      config: {
+        getDbPath: () => Promise<string>;
+        getDefaultDbPath: () => Promise<string>;
+        selectFolder: () => Promise<string | null>;
+        setDbPath: (dbPath: string) => Promise<{ dbPath: string }>;
+      };
+    };
+  }
+}

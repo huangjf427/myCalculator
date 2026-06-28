@@ -1,4 +1,7 @@
 node_modules
 dist
 ideas
-dist
+release
+dist-electron
+release-cache
+*.log
