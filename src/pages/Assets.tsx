@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo, type ReactNode } from 'react';
 import { useWealthStore } from '@/store/wealthStore';
 import type { AnyAsset, AssetCategory, BankDeposit, Securities, FundWealth, OtherAsset, CreateAssetInput } from '@/types';
 import { Plus, Edit2, Trash2, X, Filter, RotateCcw } from 'lucide-react';
@@ -8,6 +8,17 @@ import { FundWealthForm } from '@/components/forms/FundWealthForm';
 import { OtherAssetForm } from '@/components/forms/OtherAssetForm';
 
 export function Assets() {
+  const getDefaultSortField = (category: AssetCategory): string => {
+    switch (category) {
+      case 'bank_deposit':
+      case 'fund_wealth':
+      case 'other_asset':
+        return 'maturityDate';
+      case 'securities':
+        return 'updatedAt';
+    }
+  };
+
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<AssetCategory>('bank_deposit');
@@ -18,6 +29,9 @@ export function Assets() {
   const [filterInstitution, setFilterInstitution] = useState('');
   const [filterAccountName, setFilterAccountName] = useState('');
   const [filterDepositType, setFilterDepositType] = useState<'all' | 'fixed' | 'demand'>('all');
+  // 排序状态
+  const [sortField, setSortField] = useState<string>(getDefaultSortField('bank_deposit'));
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
 
   const assets = useWealthStore((state) => state.assets);
   const addAsset = useWealthStore((state) => state.addAsset);
@@ -38,6 +52,9 @@ export function Assets() {
     setFilterInstitution('');
     setFilterAccountName('');
     setFilterDepositType('all');
+    // 切换分类时重置排序为默认值
+    setSortField(getDefaultSortField(category));
+    setSortDirection('asc');
   };
 
   const handleAdd = (category: AssetCategory) => {
@@ -98,6 +115,83 @@ export function Assets() {
     }).format(value);
   };
 
+  const handleSort = (field: string) => {
+    if (sortField === field) {
+      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
+  const getAssetSortValue = (asset: AnyAsset, field: string): string | number | undefined => {
+    switch (asset.category) {
+      case 'bank_deposit': {
+        const a = asset as BankDeposit;
+        switch (field) {
+          case 'bankName': return a.bankName;
+          case 'accountName': return a.accountName;
+          case 'depositType': return a.depositType;
+          case 'amount': return a.amount;
+          case 'depositDate': return a.depositDate;
+          case 'maturityDate': return a.maturityDate;
+          default: return undefined;
+        }
+      }
+      case 'securities': {
+        const a = asset as Securities;
+        switch (field) {
+          case 'institution': return a.institution;
+          case 'accountName': return a.accountName;
+          case 'principal': return a.principal;
+          case 'currentValue': return a.currentValue;
+          case 'profit': return a.profit;
+          case 'updatedAt': return a.updatedAt;
+          default: return undefined;
+        }
+      }
+      case 'fund_wealth': {
+        const a = asset as FundWealth;
+        switch (field) {
+          case 'institution': return a.institution;
+          case 'accountName': return a.accountName;
+          case 'productName': return a.productName;
+          case 'principal': return a.principal;
+          case 'currentValue': return a.currentValue;
+          case 'profit': return a.profit;
+          case 'maturityDate': return a.maturityDate;
+          default: return undefined;
+        }
+      }
+      case 'other_asset': {
+        const a = asset as OtherAsset;
+        switch (field) {
+          case 'assetName': return a.assetName;
+          case 'accountName': return a.accountName;
+          case 'productName': return a.productName;
+          case 'principal': return a.principal;
+          case 'currentValue': return a.currentValue;
+          case 'profit': return a.profit;
+          case 'maturityDate': return a.maturityDate;
+          default: return undefined;
+        }
+      }
+    }
+  };
+
+  const SortHeader = ({ field, children }: { field: string; children: ReactNode }) => {
+    const active = sortField === field;
+    return (
+      <th
+        className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark cursor-pointer hover:bg-wealth-cream/80 transition-colors"
+        onClick={() => handleSort(field)}
+      >
+        {children}
+        {active && (sortDirection === 'asc' ? ' ↑' : ' ↓')}
+      </th>
+    );
+  };
+
   // 根据分类获取机构名称字段值
   const getInstitutionValue = (asset: AnyAsset): string => {
     switch (asset.category) {
@@ -143,6 +237,23 @@ export function Assets() {
       return true;
     });
 
+  const sortedAssets = useMemo(() => {
+    return [...filteredAssets].sort((a, b) => {
+      const aValue = getAssetSortValue(a, sortField);
+      const bValue = getAssetSortValue(b, sortField);
+      if (aValue == null && bValue == null) return 0;
+      if (aValue == null) return 1;
+      if (bValue == null) return -1;
+      let result: number;
+      if (typeof aValue === 'number' && typeof bValue === 'number') {
+        result = aValue - bValue;
+      } else {
+        result = String(aValue).localeCompare(String(bValue));
+      }
+      return sortDirection === 'asc' ? result : -result;
+    });
+  }, [filteredAssets, sortField, sortDirection]);
+
   const hasActiveFilter = filterInstitution.trim() !== '' || filterAccountName.trim() !== '' || filterDepositType !== 'all';
 
   const handleResetFilters = () => {
@@ -169,49 +280,49 @@ export function Assets() {
       case 'bank_deposit':
         return (
           <>
-            <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">银行名称</th>
-            <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">户名</th>
-            <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">定/活期</th>
-            <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">金额</th>
-            <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">存入日期</th>
-            <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">到期日</th>
+            <SortHeader field="bankName">银行名称</SortHeader>
+            <SortHeader field="accountName">户名</SortHeader>
+            <SortHeader field="depositType">定/活期</SortHeader>
+            <SortHeader field="amount">金额</SortHeader>
+            <SortHeader field="depositDate">存入日期</SortHeader>
+            <SortHeader field="maturityDate">到期日</SortHeader>
             <th className="px-6 py-4 text-right text-sm font-semibold text-wealth-dark">操作</th>
           </>
         );
       case 'securities':
         return (
           <>
-            <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">机构名称</th>
-            <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">户名</th>
-            <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">本金</th>
-            <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">现值</th>
-            <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">收益</th>
+            <SortHeader field="institution">机构名称</SortHeader>
+            <SortHeader field="accountName">户名</SortHeader>
+            <SortHeader field="principal">本金</SortHeader>
+            <SortHeader field="currentValue">现值</SortHeader>
+            <SortHeader field="profit">收益</SortHeader>
             <th className="px-6 py-4 text-right text-sm font-semibold text-wealth-dark">操作</th>
           </>
         );
       case 'fund_wealth':
         return (
           <>
-            <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">机构名称</th>
-            <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">户名</th>
-            <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">产品名称</th>
-            <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">本金</th>
-            <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">现值</th>
-            <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">收益</th>
-            <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">到期日</th>
+            <SortHeader field="institution">机构名称</SortHeader>
+            <SortHeader field="accountName">户名</SortHeader>
+            <SortHeader field="productName">产品名称</SortHeader>
+            <SortHeader field="principal">本金</SortHeader>
+            <SortHeader field="currentValue">现值</SortHeader>
+            <SortHeader field="profit">收益</SortHeader>
+            <SortHeader field="maturityDate">到期日</SortHeader>
             <th className="px-6 py-4 text-right text-sm font-semibold text-wealth-dark">操作</th>
           </>
         );
       case 'other_asset':
         return (
           <>
-            <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">资产名称</th>
-            <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">户名</th>
-            <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">产品名称</th>
-            <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">本金</th>
-            <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">现值</th>
-            <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">收益</th>
-            <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">到期日</th>
+            <SortHeader field="assetName">资产名称</SortHeader>
+            <SortHeader field="accountName">户名</SortHeader>
+            <SortHeader field="productName">产品名称</SortHeader>
+            <SortHeader field="principal">本金</SortHeader>
+            <SortHeader field="currentValue">现值</SortHeader>
+            <SortHeader field="profit">收益</SortHeader>
+            <SortHeader field="maturityDate">到期日</SortHeader>
             <th className="px-6 py-4 text-right text-sm font-semibold text-wealth-dark">操作</th>
           </>
         );
@@ -437,7 +548,7 @@ export function Assets() {
                   <tr>{renderTableColumns()}</tr>
                 </thead>
                 <tbody className="divide-y divide-wealth-border">
-                  {filteredAssets.map(renderTableRow)}
+                  {sortedAssets.map(renderTableRow)}
                 </tbody>
               </table>
             </div>

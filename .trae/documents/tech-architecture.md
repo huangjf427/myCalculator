@@ -54,7 +54,7 @@ flowchart TB
 - **桌面框架**：Electron 42.3.0
 - **数据库**：sql.js（SQLite 的纯 WASM 实现，无需原生编译）
 - **构建/打包**：electron-builder 25
-- **数据持久化**：SQLite 文件（默认 `%APPDATA%/wealth-tracker/wealth-tracker.db`，位置可通过设置修改）
+- **数据持久化**：SQLite 文件（默认 `%APPDATA%/WealthCare/WealthCare.db`，位置可通过设置修改）
 - **初始化**：Vite + React + TypeScript 模板
 
 ## 3. 路由定义
@@ -414,7 +414,7 @@ erDiagram
 
 ### 6.2 数据存储方式
 
-采用 sql.js（SQLite 纯 WASM 实现）持久化数据，数据库文件默认位于 `%APPDATA%/wealth-tracker/wealth-tracker.db`，路径可通过「设置」页面修改。配置文件 `config.json` 始终存于 `%APPDATA%/wealth-tracker/`。
+采用 sql.js（SQLite 纯 WASM 实现）持久化数据，数据库文件默认位于 `%APPDATA%/WealthCare/WealthCare.db`，路径可通过「设置」页面修改。配置文件 `config.json` 始终存于 `%APPDATA%/WealthCare/`。
 
 **SQLite 建表语句（db.cjs 中执行）：**
 
@@ -465,7 +465,7 @@ const STORAGE_KEYS = {
 
 ```json
 {
-  "dbPath": "C:\\Users\\<user>\\AppData\\Roaming\\wealth-tracker\\wealth-tracker.db"
+  "dbPath": "C:\\Users\\<user>\\AppData\\Roaming\\WealthCare\\WealthCare.db"
 }
 ```
 
@@ -500,9 +500,9 @@ src/
 │   └── Layout.tsx               # 全局布局（左侧导航 + 右侧内容）
 ├── pages/
 │   ├── Dashboard.tsx            # 仪表盘总览
-│   ├── Assets.tsx               # 资产管理（含筛选功能、自动计算到期日/到期金额/收益）
-│   ├── Liabilities.tsx          # 负债管理
-│   ├── Analysis.tsx             # 统计分析
+│   ├── Assets.tsx               # 资产管理（含筛选、表头排序、自动计算到期日/到期金额/收益）
+│   ├── Liabilities.tsx          # 负债管理（含表头排序）
+│   ├── Analysis.tsx             # 统计分析（资产/负债分布饼图、对比柱状图、按月趋势折线图、按月汇总表）
 │   └── Settings.tsx             # 设置（数据库位置管理）
 ├── store/
 │   └── wealthStore.ts           # Zustand 状态管理（双模式、init/reload）
@@ -576,7 +576,7 @@ sequenceDiagram
     Config-->>Main: folder path
     Main-->>Preload: folder
     Preload-->>Settings: folder
-    Settings->>Preload: config.setDbPath(folder + "wealth-tracker.db")
+    Settings->>Preload: config.setDbPath(folder + "WealthCare.db")
     Preload->>Main: config:setDbPath (IPC)
     Main->>Config: setDbPath()
     Config->>Config: 写入 config.json
@@ -591,8 +591,8 @@ sequenceDiagram
 
 ### 9.3 注意事项
 
-- 配置文件 `config.json` 始终位于 `%APPDATA%/wealth-tracker/`，不随数据库位置变化
-- 切换位置后**不会自动迁移**原数据库内容，用户需手动复制 `wealth-tracker.db` 文件
+- 配置文件 `config.json` 始终位于 `%APPDATA%/WealthCare/`，不随数据库位置变化
+- 切换位置后**不会自动迁移**原数据库内容，用户需手动复制 `WealthCare.db` 文件
 - 新位置若不存在 db 文件，自动创建空数据库并初始化表结构
 - `reload()` 不执行 LocalStorage 迁移逻辑（仅 `init()` 首次启动时执行）
 
@@ -602,10 +602,13 @@ sequenceDiagram
 |------|------|
 | `npm run dev` | 启动 Vite 开发服务器（纯浏览器模式，LocalStorage 回退） |
 | `npm run dev:electron` | Electron 开发模式（同时启动 Vite 与 Electron） |
-| `npm run build:win:dir` | 打包为 Windows 目录版（输出到 `dist-electron/win-unpacked/`） |
-| `npm run build:win:portable` | 打包为单文件 portable exe（需 NSIS） |
+| `npm run build:win:setup` | 打包为 Windows NSIS 安装程序（输出 `dist-electron/WealthCare-1.0.0-setup.exe`） |
+| `npm run build:win:dir` | 打包为 Windows 目录版（输出到 `dist-electron/win-unpacked/WealthCare.exe`） |
+| `npm run build:win:portable` | 打包为单文件 portable exe |
 
 **打包配置要点**（package.json build 字段）：
 - `build.files` 需包含 `node_modules/sql.js/dist/**/*`（sql.js 的 WASM 文件）
 - `build.directories.output` 设为 `dist-electron`（避免旧目录占用导致打包失败）
+- `win.target` 同时配置 `nsis` 与 `portable`，可同时产出安装版与便携版
+- `nsis` 配置：`oneClick: false`（非一键安装）、`allowToChangeInstallationDirectory: true`（允许修改安装目录）、创建桌面与开始菜单快捷方式
 - 主进程文件需使用完整文件名 `require('./db.cjs')`（不能省略 `.cjs` 扩展名）

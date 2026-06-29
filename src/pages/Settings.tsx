@@ -86,7 +86,7 @@ export function Settings() {
           </div>
           <div>
             <h3 className="font-display text-lg font-semibold text-wealth-dark">数据库文件位置</h3>
-            <p className="text-xs text-wealth-text-light">数据将保存到此位置的 wealth-tracker.db 文件中</p>
+            <p className="text-xs text-wealth-text-light">数据将保存到此位置的 WealthCare.db 文件中</p>
           </div>
         </div>
 
@@ -152,7 +152,7 @@ export function Settings() {
             <p className="font-semibold mb-1">注意事项</p>
             <ul className="list-disc list-inside space-y-1 text-amber-700">
               <li>切换数据库位置后，应用将加载新位置的数据库文件（若不存在则会自动创建空数据库）。</li>
-              <li>原位置的数据不会自动迁移到新位置，如需保留请手动复制 wealth-tracker.db 文件。</li>
+              <li>原位置的数据不会自动迁移到新位置，如需保留请手动复制 WealthCare.db 文件。</li>
               <li>切换后界面显示的数据来自新位置的数据库。</li>
             </ul>
           </div>

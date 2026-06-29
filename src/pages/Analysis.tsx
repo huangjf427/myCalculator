@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { useWealthStore } from '@/store/wealthStore';
 import { getAssetAmount, getLiabilityAmount } from '@/types';
-import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts';
 
 export function Analysis() {
   const assets = useWealthStore((state) => state.assets);
@@ -27,6 +27,36 @@ export function Analysis() {
         otherLiability: liabilities.filter((l) => l.category === 'other_liability').reduce((s, l) => s + getLiabilityAmount(l), 0),
       },
     };
+  }, [assets, liabilities]);
+
+  // 按月汇总：资产根据存入/购买日期，负债根据开始日期
+  const monthlyData = useMemo(() => {
+    const assetMap = new Map<string, number>();
+    const liabilityMap = new Map<string, number>();
+
+    for (const asset of assets) {
+      const date = asset.category === 'bank_deposit' ? asset.depositDate : (asset.category === 'fund_wealth' ? asset.purchaseDate : undefined);
+      const month = getYearMonth(date);
+      if (month) {
+        assetMap.set(month, (assetMap.get(month) ?? 0) + getAssetAmount(asset));
+      }
+    }
+
+    for (const liability of liabilities) {
+      const date = liability.category === 'credit_card' ? liability.repaymentDate : liability.startDate;
+      const month = getYearMonth(date);
+      if (month) {
+        liabilityMap.set(month, (liabilityMap.get(month) ?? 0) + getLiabilityAmount(liability));
+      }
+    }
+
+    const months = Array.from(new Set([...assetMap.keys(), ...liabilityMap.keys()])).sort();
+    return months.map((month) => ({
+      month,
+      资产: assetMap.get(month) ?? 0,
+      负债: liabilityMap.get(month) ?? 0,
+      净资产: (assetMap.get(month) ?? 0) - (liabilityMap.get(month) ?? 0),
+    }));
   }, [assets, liabilities]);
 
   const formatCurrency = (value: number) => {
@@ -187,6 +217,66 @@ export function Analysis() {
         )}
       </div>
 
+      {/* 按月统计趋势 */}
+      <div className="bg-white rounded-xl p-6 border border-wealth-border mb-8">
+        <h3 className="font-display text-xl font-semibold text-wealth-dark mb-6">
+          资产负债月度趋势
+        </h3>
+        {monthlyData.length > 0 ? (
+          <ResponsiveContainer width="100%" height={400}>
+            <LineChart data={monthlyData}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="month" />
+              <YAxis />
+              <Tooltip formatter={(value: number) => formatCurrency(value)} />
+              <Legend />
+              <Line type="monotone" dataKey="资产" stroke="#10b981" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="负债" stroke="#ef4444" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="净资产" stroke="#3b82f6" strokeWidth={2} dot={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        ) : (
+          <div className="h-[400px] flex items-center justify-center text-wealth-text-light">
+            暂无按月统计数据（需资产/负债填写日期）
+          </div>
+        )}
+      </div>
+
+      {/* 按月汇总表 */}
+      <div className="bg-white rounded-xl p-6 border border-wealth-border mb-8">
+        <h3 className="font-display text-xl font-semibold text-wealth-dark mb-6">
+          资产负债按月汇总
+        </h3>
+        {monthlyData.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-wealth-border">
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-wealth-dark">月份</th>
+                  <th className="px-4 py-3 text-right text-sm font-semibold text-wealth-dark">资产总额</th>
+                  <th className="px-4 py-3 text-right text-sm font-semibold text-wealth-dark">负债总额</th>
+                  <th className="px-4 py-3 text-right text-sm font-semibold text-wealth-dark">净资产</th>
+                </tr>
+              </thead>
+              <tbody>
+                {monthlyData.map((row) => (
+                  <tr key={row.month} className="border-b border-wealth-border/50 hover:bg-wealth-cream/30">
+                    <td className="px-4 py-3 text-wealth-text">{row.month}</td>
+                    <td className="px-4 py-3 text-right text-green-600">{formatCurrency(row.资产)}</td>
+                    <td className="px-4 py-3 text-right text-red-600">{formatCurrency(row.负债)}</td>
+                    <td className="px-4 py-3 text-right font-semibold text-wealth-dark">{formatCurrency(row.净资产)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="h-[200px] flex items-center justify-center text-wealth-text-light">
+            暂无按月汇总数据（需资产/负债填写日期）
+          </div>
+        )}
+      </div>
+
       {/* 财务健康指标 */}
       <div className="bg-white rounded-xl p-6 border border-wealth-border">
         <h3 className="font-display text-xl font-semibold text-wealth-dark mb-6">
@@ -217,4 +307,14 @@ export function Analysis() {
       </div>
     </div>
   );
+}
+
+// 从日期字符串中提取 YYYY-MM 月份，支持空/无效日期
+function getYearMonth(dateStr: string | undefined): string {
+  if (!dateStr) return '';
+  const date = new Date(dateStr);
+  if (isNaN(date.getTime())) return '';
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  return `${y}-${m}`;
 }

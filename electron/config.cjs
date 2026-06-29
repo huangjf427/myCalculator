@@ -11,7 +11,7 @@ function getConfigPath() {
 
 // 默认数据库路径
 function getDefaultDbPath() {
-  return path.join(app.getPath('userData'), 'wealth-tracker.db');
+  return path.join(app.getPath('userData'), 'WealthCare.db');
 }
 
 // 读取配置

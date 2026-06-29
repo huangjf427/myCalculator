@@ -20,8 +20,8 @@ function createWindow() {
     height: 900,
     minWidth: 1024,
     minHeight: 768,
-    title: '财富管家 - 个人财产管理',
-    icon: path.join(__dirname, '../public/vite.svg'),
+    title: 'WealthCare - 个人财产管理',
+    icon: path.join(__dirname, '../build/icon.ico'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,

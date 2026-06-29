@@ -1,10 +1,10 @@
 {
-  "name": "wealth-tracker",
-  "productName": "财富管家",
+  "name": "wealthcare",
+  "productName": "WealthCare",
   "private": true,
   "version": "1.0.0",
   "description": "个人财产管理工具 - 银行存款、证券投资、理财基金、负债管理",
-  "author": "Wealth Tracker",
+  "author": "WealthCare",
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
@@ -13,6 +13,7 @@
     "build": "tsc -b && vite build",
     "build:electron": "npm run build && electron-builder",
     "build:win": "npm run build && electron-builder --win --x64",
+    "build:win:setup": "npm run build && electron-builder --win nsis --x64",
     "build:win:portable": "npm run build && electron-builder --win portable --x64",
     "build:win:dir": "npm run build && electron-builder --win dir --x64",
     "lint": "eslint .",
@@ -44,28 +45,43 @@
     "wait-on": "^8.0.1"
   },
   "build": {
-    "appId": "com.wealth.tracker",
-    "productName": "财富管家",
-    "copyright": "Copyright © 2026",
+    "appId": "com.wealthcare.app",
+    "productName": "WealthCare",
+    "copyright": "Copyright © 2026 WealthCare",
+    "icon": "build/icon.ico",
     "directories": {
       "output": "dist-electron"
     },
     "files": [
       "dist/**/*",
       "electron/**/*",
+      "build/**/*",
       "node_modules/sql.js/dist/**/*",
       "package.json"
     ],
     "win": {
       "target": [
         {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
           "target": "portable",
           "arch": [
             "x64"
           ]
         }
-      ],
-      "artifactName": "${productName}-${version}-portable.${ext}"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "WealthCare",
+      "artifactName": "${productName}-${version}-setup.${ext}"
     },
     "portable": {
       "artifactName": "${productName}-${version}-portable.exe"

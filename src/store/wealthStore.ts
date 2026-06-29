@@ -12,9 +12,9 @@ const isElectron = !!electronAPI;
 
 // localStorage 回退（浏览器开发模式）
 const STORAGE_KEYS = {
-  ASSETS: 'wealth_tracker_assets',
-  LIABILITIES: 'wealth_tracker_liabilities',
-  CHANGES: 'wealth_tracker_changes',
+  ASSETS: 'wealthcare_assets',
+  LIABILITIES: 'wealthcare_liabilities',
+  CHANGES: 'wealthcare_changes',
 };
 
 function loadFromStorage<T>(key: string, fallback: T): T {

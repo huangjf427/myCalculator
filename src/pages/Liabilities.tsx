@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
 import { useWealthStore } from '@/store/wealthStore';
 import type { AnyLiability, LiabilityCategory, Loan, CreditCard, OtherLiability, CreateLiabilityInput } from '@/types';
 import { Plus, Edit2, Trash2, X } from 'lucide-react';
@@ -14,6 +15,19 @@ export function Liabilities() {
     category: 'loan',
   });
 
+  const getDefaultSortField = (category: LiabilityCategory): string => {
+    switch (category) {
+      case 'loan':
+      case 'other_liability':
+        return 'expectedRepaymentDate';
+      case 'credit_card':
+        return 'repaymentDate';
+    }
+  };
+
+  const [sortField, setSortField] = useState<string>(getDefaultSortField('loan'));
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+
   const liabilities = useWealthStore((state) => state.liabilities);
   const addLiability = useWealthStore((state) => state.addLiability);
   const updateLiability = useWealthStore((state) => state.updateLiability);
@@ -28,6 +42,8 @@ export function Liabilities() {
   const handleCategoryChange = (category: LiabilityCategory) => {
     setSelectedCategory(category);
     setFormData({ category });
+    setSortField(getDefaultSortField(category));
+    setSortDirection('asc');
   };
 
   const handleAdd = (category: LiabilityCategory) => {
@@ -72,6 +88,97 @@ export function Liabilities() {
 
   const filteredLiabilities = liabilities.filter((l) => l.category === selectedCategory);
 
+  const handleSort = (field: string) => {
+    if (sortField === field) {
+      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
+  const getLiabilitySortValue = (liability: AnyLiability, field: string): string | number | null | undefined => {
+    switch (liability.category) {
+      case 'loan': {
+        const loan = liability as Loan;
+        switch (field) {
+          case 'loanName':
+          case 'accountName':
+          case 'startDate':
+          case 'expectedRepaymentDate':
+            return loan[field];
+          case 'amount':
+          case 'liabilityAmount':
+            return loan[field];
+          default:
+            return null;
+        }
+      }
+      case 'credit_card': {
+        const card = liability as CreditCard;
+        switch (field) {
+          case 'institution':
+          case 'accountName':
+          case 'repaymentDate':
+            return card[field];
+          case 'amount':
+          case 'interestRate':
+            return card[field];
+          default:
+            return null;
+        }
+      }
+      case 'other_liability': {
+        const other = liability as OtherLiability;
+        switch (field) {
+          case 'loanName':
+          case 'accountName':
+          case 'startDate':
+          case 'expectedRepaymentDate':
+            return other[field];
+          case 'amount':
+          case 'liabilityAmount':
+            return other[field];
+          default:
+            return null;
+        }
+      }
+    }
+  };
+
+  type SortHeaderProps = {
+    field: string;
+    children: ReactNode;
+  };
+
+  const SortHeader = ({ field, children }: SortHeaderProps) => (
+    <th
+      className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark"
+      onClick={() => handleSort(field)}
+    >
+      {children}
+      {sortField === field && (sortDirection === 'asc' ? ' ↑' : ' ↓')}
+    </th>
+  );
+
+  const sortedLiabilities = useMemo(() => {
+    const sorted = [...filteredLiabilities];
+    sorted.sort((a, b) => {
+      const aValue = getLiabilitySortValue(a, sortField);
+      const bValue = getLiabilitySortValue(b, sortField);
+      if (aValue === null || aValue === undefined) return 1;
+      if (bValue === null || bValue === undefined) return -1;
+      let comparison = 0;
+      if (typeof aValue === 'number' && typeof bValue === 'number') {
+        comparison = aValue - bValue;
+      } else {
+        comparison = String(aValue).localeCompare(String(bValue));
+      }
+      return sortDirection === 'asc' ? comparison : -comparison;
+    });
+    return sorted;
+  }, [filteredLiabilities, sortField, sortDirection]);
+
   const renderFormFields = () => {
     switch (selectedCategory) {
       case 'loan':
@@ -88,35 +195,35 @@ export function Liabilities() {
       case 'loan':
         return (
           <>
-            <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">贷款名称</th>
-            <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">户名</th>
-            <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">金额</th>
-            <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">负债金额</th>
-            <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">开始日期</th>
-            <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">预期还款日</th>
+            <SortHeader field="loanName">贷款名称</SortHeader>
+            <SortHeader field="accountName">户名</SortHeader>
+            <SortHeader field="amount">金额</SortHeader>
+            <SortHeader field="liabilityAmount">负债金额</SortHeader>
+            <SortHeader field="startDate">开始日期</SortHeader>
+            <SortHeader field="expectedRepaymentDate">预期还款日</SortHeader>
             <th className="px-6 py-4 text-right text-sm font-semibold text-wealth-dark">操作</th>
           </>
         );
       case 'credit_card':
         return (
           <>
-            <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">发卡机构</th>
-            <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">户名</th>
-            <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">金额</th>
-            <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">利率</th>
-            <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">到期还款日</th>
+            <SortHeader field="institution">发卡机构</SortHeader>
+            <SortHeader field="accountName">户名</SortHeader>
+            <SortHeader field="amount">金额</SortHeader>
+            <SortHeader field="interestRate">利率</SortHeader>
+            <SortHeader field="repaymentDate">到期还款日</SortHeader>
             <th className="px-6 py-4 text-right text-sm font-semibold text-wealth-dark">操作</th>
           </>
         );
       case 'other_liability':
         return (
           <>
-            <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">贷款名称</th>
-            <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">户名</th>
-            <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">金额</th>
-            <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">负债金额</th>
-            <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">开始日期</th>
-            <th className="px-6 py-4 text-left text-sm font-semibold text-wealth-dark">预期还款日</th>
+            <SortHeader field="loanName">贷款名称</SortHeader>
+            <SortHeader field="accountName">户名</SortHeader>
+            <SortHeader field="amount">金额</SortHeader>
+            <SortHeader field="liabilityAmount">负债金额</SortHeader>
+            <SortHeader field="startDate">开始日期</SortHeader>
+            <SortHeader field="expectedRepaymentDate">预期还款日</SortHeader>
             <th className="px-6 py-4 text-right text-sm font-semibold text-wealth-dark">操作</th>
           </>
         );
@@ -244,7 +351,7 @@ export function Liabilities() {
                   <tr>{renderTableColumns()}</tr>
                 </thead>
                 <tbody className="divide-y divide-wealth-border">
-                  {filteredLiabilities.map(renderTableRow)}
+                  {sortedLiabilities.map(renderTableRow)}
                 </tbody>
               </table>
             </div>
