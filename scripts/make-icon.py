@@ -5,15 +5,15 @@ size = 1024
 img = Image.new('RGBA', (size, size), (0, 0, 0, 0))
 draw = ImageDraw.Draw(img)
 
-bg_color = (30, 58, 95, 255)      # 深蓝
+bg_color = (30, 58, 95, 255)       # 深蓝
 accent_color = (212, 175, 55, 255) # 金色
-corner_radius = 180
+corner_radius = size // 6
 
 # 圆角矩形背景
 draw.rounded_rectangle([0, 0, size, size], radius=corner_radius, fill=bg_color)
 
 # 加载字体
-def load_font(size):
+def load_font(font_size):
     candidates = [
         "C:/Windows/Fonts/arialbd.ttf",
         "C:/Windows/Fonts/segoeuib.ttf",
@@ -22,46 +22,45 @@ def load_font(size):
     ]
     for path in candidates:
         if os.path.exists(path):
-            return ImageFont.truetype(path, size)
+            return ImageFont.truetype(path, font_size)
     return ImageFont.load_default()
 
-font = load_font(700)
+font = load_font(size // 2)
 text = "W"
 bbox = draw.textbbox((0, 0), text, font=font)
 text_w = bbox[2] - bbox[0]
 text_h = bbox[3] - bbox[1]
 x = (size - text_w) // 2
-y = (size - text_h) // 2 - 60
+y = (size - text_h) // 2 - size // 16
 
 # 绘制 W
 draw.text((x, y), text, font=font, fill=accent_color)
 
 # 绘制底部上升折线
-line_y = y + text_h + 100
+line_y = y + text_h + size // 12
 points = [
-    (260, line_y),
-    (420, line_y - 90),
-    (580, line_y + 30),
-    (764, line_y - 130),
+    (size // 5, line_y),
+    (size * 2 // 5, line_y - size // 8),
+    (size * 3 // 5, line_y + size // 16),
+    (size * 4 // 5, line_y - size // 6),
 ]
-# 描边让线条更粗
-for offset in range(-10, 11, 5):
+line_width = max(2, size // 50)
+for offset in range(-line_width, line_width + 1, max(1, line_width // 2)):
     shifted = [(p[0], p[1] + offset) for p in points]
-    draw.line(shifted, fill=accent_color, width=20, joint="curve")
+    draw.line(shifted, fill=accent_color, width=line_width, joint="curve")
 
-# 保存 PNG
-png_path = r"d:\workspace\java\myCalculator\build\icon.png"
-img.save(png_path)
+base = r"d:\workspace\java\myCalculator\build\icon"
 
-# 生成 ICO（多尺寸）
-ico_path = r"d:\workspace\java\myCalculator\build\icon.ico"
-sizes = [16, 32, 48, 64, 128, 256]
-imgs = [img.resize((s, s), Image.LANCZOS) for s in sizes]
-imgs[0].save(
-    ico_path,
-    format='ICO',
-    sizes=[(i.width, i.height) for i in imgs],
-    append_images=imgs[1:],
-)
+# 保存多尺寸 PNG
+img.save(f"{base}_1024.png")
+img.resize((512, 512), Image.LANCZOS).save(f"{base}_512.png")
+img.resize((256, 256), Image.LANCZOS).save(f"{base}_256.png")
 
-print(f"Generated {png_path} and {ico_path}")
+# favicon 使用 256x256
+img.resize((256, 256), Image.LANCZOS).save(r"d:\workspace\java\myCalculator\public\icon.png")
+
+# 生成 ICO（Windows 标准最大 256x256）
+ico_sizes = [(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]
+img.save(f"{base}.ico", format='ICO', sizes=ico_sizes)
+
+print(f"Generated icons: {base}_1024.png, {base}_512.png, {base}_256.png, {base}.ico")
