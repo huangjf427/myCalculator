@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { useWealthStore } from '@/store/wealthStore';
 import { getAssetAmount, getLiabilityAmount } from '@/types';
+import { Printer } from 'lucide-react';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts';
 
 export function Analysis() {
@@ -29,21 +30,26 @@ export function Analysis() {
     };
   }, [assets, liabilities]);
 
-  // 按月汇总：资产根据存入/购买日期，负债根据开始日期
+  // 按月汇总：资产按到期日（maturityDate），无到期日则归入当前月份的次月；负债按到期/还款日
   const monthlyData = useMemo(() => {
     const assetMap = new Map<string, number>();
     const liabilityMap = new Map<string, number>();
 
+    const now = new Date();
+    const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    const fallbackMonth = `${nextMonth.getFullYear()}-${String(nextMonth.getMonth() + 1).padStart(2, '0')}`;
+
     for (const asset of assets) {
-      const date = asset.category === 'bank_deposit' ? asset.depositDate : (asset.category === 'fund_wealth' ? asset.purchaseDate : undefined);
-      const month = getYearMonth(date);
-      if (month) {
-        assetMap.set(month, (assetMap.get(month) ?? 0) + getAssetAmount(asset));
-      }
+      const date = ((asset as unknown) as { maturityDate?: string }).maturityDate;
+      const month = getYearMonth(date) || fallbackMonth;
+      assetMap.set(month, (assetMap.get(month) ?? 0) + getAssetAmount(asset));
     }
 
     for (const liability of liabilities) {
-      const date = liability.category === 'credit_card' ? liability.repaymentDate : liability.startDate;
+      const date =
+        liability.category === 'credit_card'
+          ? liability.repaymentDate
+          : ((liability as unknown) as { expectedRepaymentDate?: string }).expectedRepaymentDate;
       const month = getYearMonth(date);
       if (month) {
         liabilityMap.set(month, (liabilityMap.get(month) ?? 0) + getLiabilityAmount(liability));
@@ -94,15 +100,35 @@ export function Analysis() {
     return `${name}: ${(percent * 100).toFixed(1)}%`;
   };
 
+  const handlePrint = () => {
+    document.body.classList.add('printing-analysis');
+    window.print();
+    document.body.classList.remove('printing-analysis');
+  };
+
   return (
-    <div>
-      <div className="mb-8">
-        <h2 className="font-display text-3xl font-bold text-wealth-dark mb-2">
-          统计分析
-        </h2>
-        <p className="text-wealth-text-light font-body">
-          深入了解您的资产结构和财务状况
-        </p>
+    <div className="analysis-page">
+      <div className="mb-8 screen-only flex items-start justify-between gap-4">
+        <div>
+          <h2 className="font-display text-3xl font-bold text-wealth-dark mb-2">
+            统计分析
+          </h2>
+          <p className="text-wealth-text-light font-body">
+            深入了解您的资产结构和财务状况
+          </p>
+        </div>
+        <button
+          onClick={handlePrint}
+          className="flex items-center gap-2 px-4 py-2 bg-wealth-gold text-white rounded-lg hover:bg-wealth-gold-dark transition-colors font-medium"
+        >
+          <Printer size={18} />
+          打印统计图表
+        </button>
+      </div>
+
+      <div className="print-header hidden print:block mb-6">
+        <h2 className="text-2xl font-bold text-wealth-dark">WealthCare 统计分析报表</h2>
+        <p className="text-sm text-wealth-text-light">总资产：{formatCurrency(summary.totalAssets)} · 总负债：{formatCurrency(summary.totalLiabilities)} · 净资产：{formatCurrency(summary.netWorth)}</p>
       </div>
 
       {/* 关键指标 */}
@@ -217,10 +243,10 @@ export function Analysis() {
         )}
       </div>
 
-      {/* 按月统计趋势 */}
+      {/* 按到期日统计趋势 */}
       <div className="bg-white rounded-xl p-6 border border-wealth-border mb-8">
         <h3 className="font-display text-xl font-semibold text-wealth-dark mb-6">
-          资产负债月度趋势
+          资产负债按到期日趋势
         </h3>
         {monthlyData.length > 0 ? (
           <ResponsiveContainer width="100%" height={400}>
@@ -237,12 +263,12 @@ export function Analysis() {
           </ResponsiveContainer>
         ) : (
           <div className="h-[400px] flex items-center justify-center text-wealth-text-light">
-            暂无按月统计数据（需资产/负债填写日期）
+            暂无按到期日统计数据（需资产/负债填写日期）
           </div>
         )}
       </div>
 
-      {/* 按月汇总表 */}
+      {/* 按到期日汇总表 */}
       <div className="bg-white rounded-xl p-6 border border-wealth-border mb-8">
         <h3 className="font-display text-xl font-semibold text-wealth-dark mb-6">
           资产负债按月汇总
@@ -272,7 +298,7 @@ export function Analysis() {
           </div>
         ) : (
           <div className="h-[200px] flex items-center justify-center text-wealth-text-light">
-            暂无按月汇总数据（需资产/负债填写日期）
+            暂无按到期日汇总数据（需资产/负债填写日期）
           </div>
         )}
       </div>

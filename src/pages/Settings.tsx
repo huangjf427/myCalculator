@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
-import { FolderOpen, RotateCcw, Database, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { FolderOpen, RotateCcw, Database, AlertTriangle, CheckCircle2, Printer } from 'lucide-react';
 import { useWealthStore } from '@/store/wealthStore';
+import { PrintableAssetTable } from '@/components/print/PrintableAssetTable';
+import { PrintableLiabilityTable } from '@/components/print/PrintableLiabilityTable';
 
 export function Settings() {
   const electronAPI = typeof window !== 'undefined' ? window.electronAPI : undefined;
@@ -143,6 +145,29 @@ export function Settings() {
             <span>{message.text}</span>
           </div>
         )}
+      </section>
+
+      <section className="mt-6 bg-white rounded-xl shadow-sm border border-wealth-cream p-6">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-lg bg-wealth-gold/10 flex items-center justify-center">
+            <Printer size={20} className="text-wealth-gold" />
+          </div>
+          <div>
+            <h3 className="font-display text-lg font-semibold text-wealth-dark">打印资产/负债明细</h3>
+            <p className="text-xs text-wealth-text-light">按分类筛选后打印明细数据</p>
+          </div>
+        </div>
+
+        <div className="space-y-6">
+          <div>
+            <h4 className="font-semibold text-wealth-text mb-3">资产明细</h4>
+            <PrintableAssetTable />
+          </div>
+          <div className="border-t border-wealth-cream pt-6">
+            <h4 className="font-semibold text-wealth-text mb-3">负债明细</h4>
+            <PrintableLiabilityTable />
+          </div>
+        </div>
       </section>
 
       <section className="mt-6 bg-amber-50 border border-amber-200 rounded-xl p-5">

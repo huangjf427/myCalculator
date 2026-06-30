@@ -65,7 +65,7 @@ flowchart TB
 | `/assets` | 资产管理（银行存款、证券投资、理财基金、其他资产） |
 | `/liabilities` | 负债管理（贷款、信用卡、其他负债） |
 | `/analysis` | 统计分析与图表 |
-| `/settings` | 设置（数据库文件存放位置） |
+| `/settings` | 设置（数据库文件存放位置、打印资产/负债明细） |
 
 ## 4. API 定义
 
@@ -497,13 +497,16 @@ src/
 │   │   ├── LoanForm.tsx
 │   │   ├── CreditCardForm.tsx
 │   │   └── OtherLiabilityForm.tsx
+│   ├── print/                   # 打印相关组件
+│   │   ├── PrintableAssetTable.tsx   # 可筛选/打印的资产明细表
+│   │   └── PrintableLiabilityTable.tsx # 可筛选/打印的负债明细表
 │   └── Layout.tsx               # 全局布局（左侧导航 + 右侧内容）
 ├── pages/
 │   ├── Dashboard.tsx            # 仪表盘总览
 │   ├── Assets.tsx               # 资产管理（含筛选、表头排序、自动计算到期日/到期金额/收益）
 │   ├── Liabilities.tsx          # 负债管理（含表头排序）
-│   ├── Analysis.tsx             # 统计分析（资产/负债分布饼图、对比柱状图、按月趋势折线图、按月汇总表）
-│   └── Settings.tsx             # 设置（数据库位置管理）
+│   ├── Analysis.tsx             # 统计分析（资产/负债分布饼图、对比柱状图、按到期日趋势折线图、按到期日汇总表，支持打印全部图表）
+│   └── Settings.tsx             # 设置（数据库位置管理、打印资产/负债明细）
 ├── store/
 │   └── wealthStore.ts           # Zustand 状态管理（双模式、init/reload）
 └── types/
@@ -612,3 +615,59 @@ sequenceDiagram
 - `win.target` 同时配置 `nsis` 与 `portable`，可同时产出安装版与便携版
 - `nsis` 配置：`oneClick: false`（非一键安装）、`allowToChangeInstallationDirectory: true`（允许修改安装目录）、创建桌面与开始菜单快捷方式
 - 主进程文件需使用完整文件名 `require('./db.cjs')`（不能省略 `.cjs` 扩展名）
+
+## 11. 打印功能实现
+
+### 11.1 功能概述
+
+应用支持两类打印：
+
+1. **资产/负债明细打印**：在「设置」页面，用户可按分类、名称、户名等条件筛选后打印明细表格
+2. **统计分析打印**：在「统计分析」页面，一键打印全部统计内容（关键指标、饼图、柱状图、折线图、汇总表）
+
+### 11.2 实现方式
+
+采用浏览器原生 `window.print()` + CSS `@media print` 控制打印输出，无需引入额外依赖：
+
+- 点击打印按钮时给 `document.body` 添加临时 class（`printing-assets` / `printing-liabilities` / `printing-analysis`）
+- 调用 `window.print()` 触发打印对话框
+- 打印完成后移除临时 class
+
+### 11.3 打印组件
+
+| 组件 | 路径 | 职责 |
+|------|------|------|
+| `PrintableAssetTable` | `src/components/print/PrintableAssetTable.tsx` | 资产明细筛选与打印表格，支持 4 种资产分类 |
+| `PrintableLiabilityTable` | `src/components/print/PrintableLiabilityTable.tsx` | 负债明细筛选与打印表格，支持 3 种负债分类 |
+
+### 11.4 打印样式（index.css）
+
+```css
+@media print {
+  /* 隐藏侧边导航、screen-only 元素 */
+  aside, nav, .screen-only { display: none !important; }
+
+  /* 显示打印专用头部 */
+  .print-header, .print-only { display: block !important; }
+
+  /* 默认隐藏打印区块 */
+  .print-section { display: none !important; }
+
+  /* 根据 body class 显示对应打印区块 */
+  body.printing-assets .print-section[data-print-section="assets"] { display: block !important; }
+  body.printing-liabilities .print-section[data-print-section="liabilities"] { display: block !important; }
+  body.printing-analysis .analysis-page { display: block !important; }
+
+  /* 表格打印优化 */
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { border: 1px solid #d1d5db; padding: 6px 8px; }
+  th { background-color: #f3f4f6 !important; }
+}
+```
+
+### 11.5 注意事项
+
+- 打印统计图表时，Recharts 渲染的 SVG 会随页面一起打印；图表容器需设置 `break-inside: avoid` 避免跨页截断
+- 打印资产/负债明细时，仅打印当前选中的分类和筛选结果
+- 打印时使用 `-webkit-print-color-adjust: exact` 保留背景色和图表颜色
+- 浏览器开发模式下同样支持打印预览（Ctrl+P），但 Electron 中调用 `window.print()` 会弹出系统打印对话框

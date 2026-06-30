@@ -57,3 +57,85 @@ body {
 .gradient-gold {
   background: linear-gradient(135deg, #c9a96e 0%, #d4b87a 100%);
 }
+
+/* 打印样式 */
+@media print {
+  @page {
+    margin: 15mm;
+    size: auto;
+  }
+
+  body {
+    background: white !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* 隐藏侧边导航 */
+  aside,
+  nav {
+    display: none !important;
+  }
+
+  /* 隐藏 screen-only 元素 */
+  .screen-only {
+    display: none !important;
+  }
+
+  /* 显示 print-only / print-header */
+  .print-header,
+  .print-only {
+    display: block !important;
+  }
+
+  /* 默认隐藏所有打印区块 */
+  .print-section {
+    display: none !important;
+  }
+
+  /* 打印资产时只显示资产表格 */
+  body.printing-assets .print-section[data-print-section="assets"] {
+    display: block !important;
+  }
+
+  /* 打印负债时只显示负债表格 */
+  body.printing-liabilities .print-section[data-print-section="liabilities"] {
+    display: block !important;
+  }
+
+  /* 打印统计分析时显示整个分析页 */
+  body.printing-analysis .analysis-page {
+    display: block !important;
+  }
+
+  body.printing-analysis .analysis-page > div {
+    break-inside: avoid;
+    margin-bottom: 20px;
+  }
+
+  /* 表格样式优化 */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+
+  th, td {
+    border: 1px solid #d1d5db;
+    padding: 6px 8px;
+  }
+
+  th {
+    background-color: #f3f4f6 !important;
+  }
+
+  /* 链接不显示下划线 */
+  a {
+    text-decoration: none;
+  }
+}
+
+/* 屏幕模式下隐藏打印专用头部 */
+.print-header {
+  display: none;
+}
