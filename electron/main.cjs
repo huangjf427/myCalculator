@@ -69,6 +69,8 @@ function registerDbHandlers() {
   ipcMain.handle('db:addChange', wrap((change) => db.addChange(change)));
 
   ipcMain.handle('db:migrate', wrap((data) => db.migrateFromLocalStorage(data.assets, data.liabilities, data.changes)));
+  ipcMain.handle('db:importDbFile', wrap((filePath) => db.importDbFile(filePath)));
+  ipcMain.handle('db:backupDb', wrap(() => db.backupDb()));
 }
 
 // 注册配置 IPC 处理器
@@ -76,6 +78,7 @@ function registerConfigHandlers() {
   ipcMain.handle('config:getDbPath', () => config.getDbPath());
   ipcMain.handle('config:getDefaultDbPath', () => config.getDefaultDbPath());
   ipcMain.handle('config:selectFolder', () => config.selectFolder());
+  ipcMain.handle('config:selectDbFile', () => config.selectDbFile());
   ipcMain.handle('config:setDbPath', async (_e, dbPath) => {
     const result = config.setDbPath(dbPath);
     // 切换路径后重置数据库初始化状态，重新加载
@@ -101,6 +104,7 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
+    db.flushSave();
     app.quit();
   }
 });

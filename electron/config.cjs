@@ -61,6 +61,19 @@ function selectFolder() {
   return result && result.length > 0 ? result[0] : null;
 }
 
+// 选择数据库文件对话框
+function selectDbFile() {
+  const result = dialog.showOpenDialogSync({
+    title: '选择要导入的数据库文件',
+    properties: ['openFile'],
+    filters: [
+      { name: 'SQLite 数据库', extensions: ['db', 'sqlite', 'sqlite3'] },
+      { name: '所有文件', extensions: ['*'] },
+    ],
+  });
+  return result && result.length > 0 ? result[0] : null;
+}
+
 module.exports = {
   loadConfig,
   saveConfig,
@@ -68,4 +81,5 @@ module.exports = {
   setDbPath,
   getDefaultDbPath,
   selectFolder,
+  selectDbFile,
 };

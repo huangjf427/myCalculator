@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { FolderOpen, RotateCcw, Database, AlertTriangle, CheckCircle2, Printer } from 'lucide-react';
+import { FolderOpen, RotateCcw, Database, AlertTriangle, CheckCircle2, Printer, Upload, Download } from 'lucide-react';
 import { useWealthStore } from '@/store/wealthStore';
 import { PrintableAssetTable } from '@/components/print/PrintableAssetTable';
 import { PrintableLiabilityTable } from '@/components/print/PrintableLiabilityTable';
@@ -40,7 +40,7 @@ export function Settings() {
         setLoading(false);
         return;
       }
-      const newDbPath = folder.replace(/[\\/]+$/, '') + '\\wealth-tracker.db';
+      const newDbPath = folder.replace(/[\\/]+$/, '') + '\\WealthCare.db';
       await electronAPI.config.setDbPath(newDbPath);
       setDbPath(newDbPath);
       await reload();
@@ -67,6 +67,44 @@ export function Settings() {
       setMessage({ type: 'success', text: '已恢复为默认数据库位置。' });
     } catch (e) {
       setMessage({ type: 'error', text: '恢复默认位置失败：' + String(e) });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleImportDb = async () => {
+    if (!electronAPI) return;
+    setLoading(true);
+    setMessage(null);
+    try {
+      const filePath = await electronAPI.config.selectDbFile();
+      if (!filePath) {
+        setLoading(false);
+        return;
+      }
+      await electronAPI.db.importDbFile(filePath);
+      await reload();
+      setMessage({ type: 'success', text: '数据库导入成功，已重新加载数据。' });
+    } catch (e) {
+      setMessage({ type: 'error', text: '导入数据库失败：' + String(e) });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleBackupDb = async () => {
+    if (!electronAPI) return;
+    setLoading(true);
+    setMessage(null);
+    try {
+      const backupPath = await electronAPI.db.backupDb();
+      if (backupPath) {
+        setMessage({ type: 'success', text: '已备份到：' + backupPath });
+      } else {
+        setMessage({ type: 'info', text: '当前数据库文件不存在，无需备份。' });
+      }
+    } catch (e) {
+      setMessage({ type: 'error', text: '备份数据库失败：' + String(e) });
     } finally {
       setLoading(false);
     }
@@ -125,6 +163,22 @@ export function Settings() {
             <RotateCcw size={18} />
             恢复默认位置
           </button>
+          <button
+            onClick={handleImportDb}
+            disabled={!electronAPI || loading}
+            className="flex items-center gap-2 px-4 py-2 bg-wealth-cream text-wealth-text rounded-lg hover:bg-wealth-cream-dark/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium border border-wealth-cream-dark/30"
+          >
+            <Upload size={18} />
+            导入数据库
+          </button>
+          <button
+            onClick={handleBackupDb}
+            disabled={!electronAPI || loading}
+            className="flex items-center gap-2 px-4 py-2 bg-wealth-cream text-wealth-text rounded-lg hover:bg-wealth-cream-dark/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium border border-wealth-cream-dark/30"
+          >
+            <Download size={18} />
+            备份当前数据库
+          </button>
         </div>
 
         {message && (
@@ -176,9 +230,9 @@ export function Settings() {
           <div className="text-sm text-amber-800">
             <p className="font-semibold mb-1">注意事项</p>
             <ul className="list-disc list-inside space-y-1 text-amber-700">
+              <li>首次启动时，若当前位置没有数据库，应用会自动从旧版本默认路径（%APPDATA%/wealth-tracker 等）迁移数据。</li>
               <li>切换数据库位置后，应用将加载新位置的数据库文件（若不存在则会自动创建空数据库）。</li>
-              <li>原位置的数据不会自动迁移到新位置，如需保留请手动复制 WealthCare.db 文件。</li>
-              <li>切换后界面显示的数据来自新位置的数据库。</li>
+              <li>可通过「导入数据库」手动恢复旧版本或备份的数据库文件，导入前会自动备份当前数据库。</li>
             </ul>
           </div>
         </div>

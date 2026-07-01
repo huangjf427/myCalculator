@@ -151,7 +151,7 @@ export const useWealthStore = create<WealthState>((set, get) => ({
     };
 
     if (isElectron) {
-      await electronAPI!.db.addAsset(asset);
+      await electronAPI!.db.addAsset(newAsset);
       await electronAPI!.db.addChange(change);
     } else {
       saveToStorage(STORAGE_KEYS.ASSETS, [...get().assets, newAsset]);
@@ -180,7 +180,7 @@ export const useWealthStore = create<WealthState>((set, get) => ({
     };
 
     if (isElectron) {
-      await electronAPI!.db.updateAsset(id, updates);
+      await electronAPI!.db.updateAsset(id, updated);
       await electronAPI!.db.addChange(change);
     } else {
       const assets = get().assets.map((a) => (a.id === id ? updated : a));
@@ -237,7 +237,7 @@ export const useWealthStore = create<WealthState>((set, get) => ({
     };
 
     if (isElectron) {
-      await electronAPI!.db.addLiability(liability);
+      await electronAPI!.db.addLiability(newLiability);
       await electronAPI!.db.addChange(change);
     } else {
       saveToStorage(STORAGE_KEYS.LIABILITIES, [...get().liabilities, newLiability]);
@@ -266,7 +266,7 @@ export const useWealthStore = create<WealthState>((set, get) => ({
     };
 
     if (isElectron) {
-      await electronAPI!.db.updateLiability(id, updates);
+      await electronAPI!.db.updateLiability(id, updated);
       await electronAPI!.db.addChange(change);
     } else {
       const liabilities = get().liabilities.map((l) => (l.id === id ? updated : l));
@@ -359,11 +359,14 @@ declare global {
         getAllChanges: () => Promise<any[]>;
         addChange: (change: any) => Promise<any>;
         migrate: (data: { assets: any[]; liabilities: any[]; changes: any[] }) => Promise<boolean>;
+        importDbFile: (filePath: string) => Promise<void>;
+        backupDb: () => Promise<string | null>;
       };
       config: {
         getDbPath: () => Promise<string>;
         getDefaultDbPath: () => Promise<string>;
         selectFolder: () => Promise<string | null>;
+        selectDbFile: () => Promise<string | null>;
         setDbPath: (dbPath: string) => Promise<{ dbPath: string }>;
       };
     };

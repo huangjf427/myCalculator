@@ -16,12 +16,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getAllChanges: () => ipcRenderer.invoke('db:getAllChanges'),
     addChange: (change) => ipcRenderer.invoke('db:addChange', change),
     migrate: (data) => ipcRenderer.invoke('db:migrate', data),
+    importDbFile: (filePath) => ipcRenderer.invoke('db:importDbFile', filePath),
+    backupDb: () => ipcRenderer.invoke('db:backupDb'),
   },
   // 配置操作
   config: {
     getDbPath: () => ipcRenderer.invoke('config:getDbPath'),
     getDefaultDbPath: () => ipcRenderer.invoke('config:getDefaultDbPath'),
     selectFolder: () => ipcRenderer.invoke('config:selectFolder'),
+    selectDbFile: () => ipcRenderer.invoke('config:selectDbFile'),
     setDbPath: (dbPath) => ipcRenderer.invoke('config:setDbPath', dbPath),
   },
 });

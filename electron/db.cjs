@@ -9,6 +9,131 @@ let dbPath = null;
 let SQL = null;
 let saveTimer = null;
 
+// 旧版本可能出现的数据库路径（按历史 app name / 文件名）
+function getLegacyDbPaths() {
+  const userData = app.getPath('userData');
+  const roaming = path.dirname(userData);
+  return [
+    path.join(roaming, 'wealth-tracker', 'wealth-tracker.db'),
+    path.join(roaming, 'wealth-tracker', 'WealthCare.db'),
+    path.join(roaming, 'wealthcare', 'wealthcare.db'),
+    path.join(roaming, 'wealthcare', 'WealthCare.db'),
+  ];
+}
+
+// 若当前路径没有数据库，尝试从旧版本路径复制一份
+function migrateLegacyDbFile(targetPath) {
+  if (fs.existsSync(targetPath)) return false;
+  const legacyPaths = getLegacyDbPaths();
+  for (const legacyPath of legacyPaths) {
+    if (fs.existsSync(legacyPath)) {
+      try {
+        fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+        fs.copyFileSync(legacyPath, targetPath);
+        console.log(`已从旧数据库路径迁移: ${legacyPath} -> ${targetPath}`);
+        return true;
+      } catch (e) {
+        console.error('迁移旧数据库失败:', e);
+      }
+    }
+  }
+  return false;
+}
+
+// 获取表名集合
+function getTableNames(database) {
+  const rows = database.exec("SELECT name FROM sqlite_master WHERE type='table'");
+  if (!rows.length) return new Set();
+  return new Set(rows[0].values.map((row) => row[0]));
+}
+
+// 获取表的列名集合
+function getColumnNames(database, tableName) {
+  const rows = database.exec(`PRAGMA table_info(${tableName})`);
+  if (!rows.length) return new Set();
+  return new Set(rows[0].values.map((row) => row[1]));
+}
+
+// 确保资产/负债表结构正确，支持从旧版本 schema 迁移
+function ensureAssetTableSchema(database, tableName) {
+  const tables = getTableNames(database);
+  const columns = ['id', 'category', 'data', 'created_at', 'updated_at'];
+
+  if (!tables.has(tableName)) {
+    database.run(`
+      CREATE TABLE ${tableName} (
+        id TEXT PRIMARY KEY,
+        category TEXT NOT NULL,
+        data TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    `);
+    return;
+  }
+
+  const existingColumns = getColumnNames(database, tableName);
+  const missing = columns.filter((c) => !existingColumns.has(c));
+  if (missing.length === 0) return;
+
+  // 列缺失时重建表，并从 JSON data 中恢复核心字段
+  const backupName = `${tableName}_backup`;
+  database.run(`DROP TABLE IF EXISTS ${backupName}`);
+  database.run(`ALTER TABLE ${tableName} RENAME TO ${backupName}`);
+  database.run(`
+    CREATE TABLE ${tableName} (
+      id TEXT PRIMARY KEY,
+      category TEXT NOT NULL,
+      data TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+
+  try {
+    const dataRows = database.exec(`SELECT data FROM ${backupName}`);
+    if (dataRows.length) {
+      const now = new Date().toISOString();
+      for (const [json] of dataRows[0].values) {
+        const record = JSON.parse(json);
+        const id = record.id || generateId();
+        const category = record.category || '';
+        const createdAt = record.createdAt || record.created_at || now;
+        const updatedAt = record.updatedAt || record.updated_at || now;
+        database.run(
+          `INSERT OR REPLACE INTO ${tableName} (id, category, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
+          [id, category, JSON.stringify(record), createdAt, updatedAt]
+        );
+      }
+    }
+  } catch (e) {
+    console.error(`修复表 ${tableName} 失败:`, e);
+  }
+
+  database.run(`DROP TABLE ${backupName}`);
+}
+
+// 修复/初始化数据库 schema
+function repairSchema(database) {
+  ensureAssetTableSchema(database, 'assets');
+  ensureAssetTableSchema(database, 'liabilities');
+
+  const tables = getTableNames(database);
+  if (!tables.has('changes')) {
+    database.run(`
+      CREATE TABLE changes (
+        id TEXT PRIMARY KEY,
+        type TEXT NOT NULL,
+        target TEXT NOT NULL,
+        name TEXT NOT NULL,
+        category TEXT NOT NULL,
+        amount REAL NOT NULL,
+        timestamp TEXT NOT NULL
+      );
+    `);
+  }
+}
+
 // 获取数据库实例（单例）
 async function getDb() {
   if (db) return db;
@@ -19,6 +144,9 @@ async function getDb() {
   // 从配置中读取数据库路径，未配置则使用默认路径
   dbPath = config.getDbPath();
 
+  // 若当前路径没有数据库，尝试从旧版本路径迁移
+  migrateLegacyDbFile(dbPath);
+
   // 确保目录存在
   const dir = path.dirname(dbPath);
   if (!fs.existsSync(dir)) {
@@ -28,9 +156,11 @@ async function getDb() {
   if (fs.existsSync(dbPath)) {
     const buffer = fs.readFileSync(dbPath);
     db = new SQL.Database(buffer);
+    repairSchema(db);
+    save();
   } else {
     db = new SQL.Database();
-    initSchema(db);
+    repairSchema(db);
     save();
   }
 
@@ -48,49 +178,50 @@ async function reloadDb() {
   return getDb();
 }
 
+// 导入外部数据库文件（覆盖当前数据库，导入前自动备份）
+async function importDbFile(sourcePath) {
+  await getDb();
+  if (!fs.existsSync(sourcePath)) {
+    throw new Error('数据库文件不存在');
+  }
+  if (dbPath && fs.existsSync(dbPath)) {
+    const backupPath = `${dbPath}.backup-${Date.now()}`;
+    fs.copyFileSync(dbPath, backupPath);
+  }
+  fs.copyFileSync(sourcePath, dbPath);
+  return reloadDb();
+}
+
+// 手动备份当前数据库
+function backupDb() {
+  if (!dbPath || !fs.existsSync(dbPath)) return null;
+  const backupPath = `${dbPath}.backup-${Date.now()}`;
+  fs.copyFileSync(dbPath, backupPath);
+  return backupPath;
+}
+
 // 防抖保存：避免频繁写文件
 function save() {
   if (!db || !dbPath) return;
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
-    try {
-      const data = db.export();
-      fs.writeFileSync(dbPath, Buffer.from(data));
-    } catch (e) {
-      console.error('保存数据库失败:', e);
-    }
+    flushSave();
   }, 300);
 }
 
-// 初始化数据库表结构
-function initSchema(database) {
-  database.run(`
-    CREATE TABLE IF NOT EXISTS assets (
-      id TEXT PRIMARY KEY,
-      category TEXT NOT NULL,
-      data TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS liabilities (
-      id TEXT PRIMARY KEY,
-      category TEXT NOT NULL,
-      data TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS changes (
-      id TEXT PRIMARY KEY,
-      type TEXT NOT NULL,
-      target TEXT NOT NULL,
-      name TEXT NOT NULL,
-      category TEXT NOT NULL,
-      amount REAL NOT NULL,
-      timestamp TEXT NOT NULL
-    );
-  `);
+// 立即执行 pending 的保存（应用退出前调用）
+function flushSave() {
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  }
+  if (!db || !dbPath) return;
+  try {
+    const data = db.export();
+    fs.writeFileSync(dbPath, Buffer.from(data));
+  } catch (e) {
+    console.error('保存数据库失败:', e);
+  }
 }
 
 function generateId() {
@@ -107,11 +238,11 @@ function getAllAssets() {
 
 function addAsset(input) {
   const now = new Date().toISOString();
-  const id = generateId();
-  const record = { ...input, id, createdAt: now, updatedAt: now };
+  const id = input.id || generateId();
+  const record = { ...input, id, createdAt: input.createdAt || now, updatedAt: now };
   db.run(
     'INSERT INTO assets (id, category, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
-    [id, input.category, JSON.stringify(record), now, now]
+    [id, input.category, JSON.stringify(record), record.createdAt, record.updatedAt]
   );
   save();
   return record;
@@ -149,11 +280,11 @@ function getAllLiabilities() {
 
 function addLiability(input) {
   const now = new Date().toISOString();
-  const id = generateId();
-  const record = { ...input, id, createdAt: now, updatedAt: now };
+  const id = input.id || generateId();
+  const record = { ...input, id, createdAt: input.createdAt || now, updatedAt: now };
   db.run(
     'INSERT INTO liabilities (id, category, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
-    [id, input.category, JSON.stringify(record), now, now]
+    [id, input.category, JSON.stringify(record), record.createdAt, record.updatedAt]
   );
   save();
   return record;
@@ -254,6 +385,9 @@ function migrateFromLocalStorage(assets, liabilities, changes) {
 module.exports = {
   getDb,
   reloadDb,
+  flushSave,
+  importDbFile,
+  backupDb,
   getAllAssets,
   addAsset,
   updateAsset,
