@@ -40,7 +40,7 @@ flowchart TB
 
 - **渲染进程**：React 应用通过 `window.electronAPI`（preload 暴露）发起 IPC 调用
 - **主进程**：处理 IPC 请求，操作 SQLite 文件与配置文件
-- **持久化层**：SQLite 数据库文件 `WealthCare.db` + `config.json` 配置文件，均位于 `%APPDATA%/WealthCare/`；首次启动会自动从历史版本路径迁移旧数据库
+- **持久化层**：SQLite 数据库文件 `WealthCare.db` + `config.json` 配置文件，均位于 `%APPDATA%/WealthCare/`；首次启动会自动从历史版本路径迁移旧数据库，并自动修复表结构差异
 - **浏览器回退**：开发模式下若不在 Electron 环境中，自动回退到 LocalStorage
 
 ## 2. 技术描述
@@ -65,7 +65,7 @@ flowchart TB
 | `/assets` | 资产管理（银行存款、证券投资、理财基金、其他资产） |
 | `/liabilities` | 负债管理（贷款、信用卡、其他负债） |
 | `/analysis` | 统计分析与图表 |
-| `/settings` | 设置（数据库文件存放位置、打印资产/负债明细） |
+| `/settings` | 设置（数据库文件存放位置管理） |
 
 ## 4. API 定义
 
@@ -449,7 +449,7 @@ CREATE TABLE IF NOT EXISTS changes (
 );
 ```
 
-**防抖保存**：写入操作后延迟 300ms 批量持久化到 db 文件，避免频繁 IO。
+**防抖保存与退出 flush**：写入操作后延迟 300ms 批量持久化到 db 文件，避免频繁 IO；应用关闭前（`before-quit` / `window-close` 事件）调用 `flushSave()` 确保未写入的 debounced 操作落盘，防止数据丢失。
 
 **LocalStorage 回退键名**（仅浏览器开发模式）：
 
@@ -468,6 +468,35 @@ const STORAGE_KEYS = {
   "dbPath": "C:\\Users\\<user>\\AppData\\Roaming\\WealthCare\\WealthCare.db"
 }
 ```
+
+### 6.3 数据库迁移与 Schema 修复
+
+**统一数据库文件名**：应用运行期间只读写 `WealthCare.db`，配置文件与 UI 中不再保留 `wealth-tracker.db` 相关引用。
+
+**旧数据库自动迁移**：`electron/db.cjs` 在首次启动时按以下优先级检测历史数据库路径并自动迁移：
+
+```javascript
+function getLegacyDbPaths() {
+  const userData = app.getPath('userData');
+  const roaming = path.dirname(userData);
+  return [
+    path.join(roaming, 'wealth-tracker', 'wealth-tracker.db'),
+    path.join(roaming, 'Wealth Tracker', 'wealth-tracker.db'),
+    path.join(roaming, 'wealthcare', 'wealthcare.db'),
+    path.join(roaming, 'wealthcare', 'WealthCare.db'),
+    path.join(roaming, 'WealthCare', 'wealthcare.db'),
+    path.join(roaming, 'WealthCare', 'WealthCare.db'),
+  ];
+}
+```
+
+检测到任一旧数据库存在时，将其数据迁移到新的 `%APPDATA%/WealthCare/WealthCare.db`，迁移完成后所有后续读写只针对 `WealthCare.db`。
+
+**Schema 自动修复**：`ensureAssetTableSchema()` 等函数在加载数据库时检查表结构：
+
+- 缺表时自动建表
+- 缺列或列类型不一致时，通过 "创建新表 → 迁移数据 → 删除旧表 → 重命名新表" 的方式修复
+- 修复过程保留原有数据，确保新版本 schema 与旧数据兼容
 
 ## 7. 组件结构
 
@@ -498,54 +527,124 @@ src/
 │   │   ├── CreditCardForm.tsx
 │   │   └── OtherLiabilityForm.tsx
 │   ├── print/                   # 打印相关组件
-│   │   ├── PrintableAssetTable.tsx   # 可筛选/打印的资产明细表
-│   │   └── PrintableLiabilityTable.tsx # 可筛选/打印的负债明细表
+│   │   ├── PrintableAssetTable.tsx   # 可筛选/打印的资产明细表，在资产页面使用
+│   │   └── PrintableLiabilityTable.tsx # 可筛选/打印的负债明细表，在负债页面使用
 │   └── Layout.tsx               # 全局布局（左侧导航 + 右侧内容）
 ├── pages/
 │   ├── Dashboard.tsx            # 仪表盘总览
-│   ├── Assets.tsx               # 资产管理（含筛选、表头排序、自动计算到期日/到期金额/收益）
-│   ├── Liabilities.tsx          # 负债管理（含表头排序）
+│   ├── Assets.tsx               # 资产管理（含筛选、汇总、表头排序、自动计算到期日/到期金额/收益、打印资产明细）
+│   ├── Liabilities.tsx          # 负债管理（含筛选、汇总、表头排序、打印负债明细）
 │   ├── Analysis.tsx             # 统计分析（资产/负债分布饼图、对比柱状图、按到期日趋势折线图、按到期日汇总表，支持打印全部图表）
-│   └── Settings.tsx             # 设置（数据库位置管理、打印资产/负债明细）
+│   └── Settings.tsx             # 设置（数据库位置管理）
 ├── store/
 │   └── wealthStore.ts           # Zustand 状态管理（双模式、init/reload）
 └── types/
     └── index.ts                 # TypeScript 类型定义
 ```
 
-## 8. 资产筛选功能实现
+## 8. 筛选与汇总功能实现
 
-### 8.1 筛选状态
+### 8.1 资产筛选状态
 
 ```typescript
 const [filterInstitution, setFilterInstitution] = useState('');
 const [filterAccountName, setFilterAccountName] = useState('');
 const [filterDepositType, setFilterDepositType] = useState<'all' | 'fixed' | 'demand'>('all');
+const [filterStartDate, setFilterStartDate] = useState('');
+const [filterEndDate, setFilterEndDate] = useState('');
 ```
 
-### 8.2 筛选逻辑
+### 8.2 资产筛选逻辑
 
 筛选在组件层完成（非 store 层），基于当前 `selectedCategory` 对资产列表进行二次过滤：
 
 - **机构名称**：按分类映射到不同字段（bankName / institution / assetName），文本模糊匹配，不区分大小写
 - **户名**：匹配 accountName 字段，文本模糊匹配，不区分大小写
 - **定/活期**：仅银行存款分类生效，匹配 depositType 字段，下拉精确匹配
+- **日期范围**：证券类不显示；其他分类按分类对应日期字段过滤
 
-### 8.3 字段映射
+### 8.3 资产日期筛选字段映射
 
-| 分类 | 机构名称筛选字段 |
-|------|------------------|
-| bank_deposit | bankName |
-| securities | institution |
-| fund_wealth | institution |
-| other_asset | assetName |
+| 分类 | 机构名称筛选字段 | 日期筛选字段 |
+|------|------------------|--------------|
+| bank_deposit | bankName | depositDate |
+| securities | institution | 无（不显示日期筛选） |
+| fund_wealth | institution | maturityDate |
+| other_asset | assetName | maturityDate |
 
-### 8.4 交互行为
+### 8.4 日期范围匹配逻辑
+
+```typescript
+const isDateInFilter = (dateStr: string, start: string, end: string): boolean => {
+  const date = new Date(dateStr);
+  if (isNaN(date.getTime())) return true;
+
+  if (start && end) {
+    const startMonth = new Date(start);
+    startMonth.setDate(1);
+    const endMonth = new Date(end);
+    endMonth.setMonth(endMonth.getMonth() + 1, 0);
+    return date >= startMonth && date <= endMonth;
+  }
+
+  if (start) {
+    const startMonth = new Date(start);
+    startMonth.setDate(1);
+    return date >= startMonth;
+  }
+
+  if (end) {
+    const endDate = new Date(end);
+    return date <= endDate;
+  }
+
+  return true;
+};
+```
+
+### 8.5 资产汇总逻辑
+
+在筛选结果基础上计算总笔数与金额合计：
+
+```typescript
+const totalAmount = filteredAssets.reduce((sum, asset) => {
+  const value = asset.category === 'securities'
+    ? asset.currentValue
+    : (asset.amount ?? asset.currentValue ?? asset.principal ?? 0);
+  return sum + value;
+}, 0);
+```
+
+### 8.6 负债筛选与汇总
+
+负债页面筛选状态：
+
+```typescript
+const [filterName, setFilterName] = useState('');
+const [filterAccountName, setFilterAccountName] = useState('');
+const [filterStartDate, setFilterStartDate] = useState('');
+const [filterEndDate, setFilterEndDate] = useState('');
+```
+
+| 分类 | 名称筛选字段 | 日期筛选字段 |
+|------|--------------|--------------|
+| loan | loanName | expectedRepaymentDate |
+| credit_card | institution | repaymentDate |
+| other_liability | loanName | expectedRepaymentDate |
+
+负债汇总逻辑与资产页面一致，按筛选结果计算总笔数与金额合计。
+
+### 8.7 布局实现
+
+资产筛选区域使用 `grid grid-cols-1 md:grid-cols-4 gap-3`，以容纳机构名称、户名、定/活期、起始日期、结束日期共 5 个字段；负债筛选区域使用响应式网格布局。
+
+### 8.8 交互行为
 
 - 切换分类标签时重置所有筛选条件
-- 筛选区域始终展示，定/活期筛选项仅在银行存款分类下显示
+- 筛选区域始终展示，定/活期筛选项仅在银行存款分类下显示，日期筛选项在证券类下隐藏
 - 有任意筛选生效时显示「重置」按钮
 - 记录数显示「（已筛选）」标识
+- 汇总卡片在筛选区域下方实时显示当前结果
 
 ## 9. 设置功能实现（数据库位置管理）
 
@@ -622,7 +721,7 @@ sequenceDiagram
 
 应用支持两类打印：
 
-1. **资产/负债明细打印**：在「设置」页面，用户可按分类、名称、户名等条件筛选后打印明细表格
+1. **资产/负债明细打印**：在「资产」和「负债」页面，用户可按当前分类和筛选条件打印明细表格
 2. **统计分析打印**：在「统计分析」页面，一键打印全部统计内容（关键指标、饼图、柱状图、折线图、汇总表）
 
 ### 11.2 实现方式
@@ -637,8 +736,8 @@ sequenceDiagram
 
 | 组件 | 路径 | 职责 |
 |------|------|------|
-| `PrintableAssetTable` | `src/components/print/PrintableAssetTable.tsx` | 资产明细筛选与打印表格，支持 4 种资产分类 |
-| `PrintableLiabilityTable` | `src/components/print/PrintableLiabilityTable.tsx` | 负债明细筛选与打印表格，支持 3 种负债分类 |
+| `PrintableAssetTable` | `src/components/print/PrintableAssetTable.tsx` | 资产明细筛选与打印表格，支持 4 种资产分类，在 `Assets.tsx` 中按当前分类和筛选条件调用 |
+| `PrintableLiabilityTable` | `src/components/print/PrintableLiabilityTable.tsx` | 负债明细筛选与打印表格，支持 3 种负债分类，在 `Liabilities.tsx` 中按当前分类和筛选条件调用 |
 
 ### 11.4 打印样式（index.css）
 
@@ -668,6 +767,6 @@ sequenceDiagram
 ### 11.5 注意事项
 
 - 打印统计图表时，Recharts 渲染的 SVG 会随页面一起打印；图表容器需设置 `break-inside: avoid` 避免跨页截断
-- 打印资产/负债明细时，仅打印当前选中的分类和筛选结果
+- 打印资产/负债明细时，仅打印当前选中的分类和筛选结果；原页面内容通过 `screen-only` 类在打印时隐藏
 - 打印时使用 `-webkit-print-color-adjust: exact` 保留背景色和图表颜色
 - 浏览器开发模式下同样支持打印预览（Ctrl+P），但 Electron 中调用 `window.print()` 会弹出系统打印对话框
