@@ -6,6 +6,7 @@ import { BankDepositForm, calcMaturityDate } from '@/components/forms/BankDeposi
 import { SecuritiesForm } from '@/components/forms/SecuritiesForm';
 import { FundWealthForm } from '@/components/forms/FundWealthForm';
 import { OtherAssetForm } from '@/components/forms/OtherAssetForm';
+import { PrintableAssetTable } from '@/components/print/PrintableAssetTable';
 
 export function Assets() {
   const getDefaultSortField = (category: AssetCategory): string => {
@@ -29,6 +30,8 @@ export function Assets() {
   const [filterInstitution, setFilterInstitution] = useState('');
   const [filterAccountName, setFilterAccountName] = useState('');
   const [filterDepositType, setFilterDepositType] = useState<'all' | 'fixed' | 'demand'>('all');
+  const [filterStartDate, setFilterStartDate] = useState('');
+  const [filterEndDate, setFilterEndDate] = useState('');
   // 排序状态
   const [sortField, setSortField] = useState<string>(getDefaultSortField('bank_deposit'));
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
@@ -52,6 +55,8 @@ export function Assets() {
     setFilterInstitution('');
     setFilterAccountName('');
     setFilterDepositType('all');
+    setFilterStartDate('');
+    setFilterEndDate('');
     // 切换分类时重置排序为默认值
     setSortField(getDefaultSortField(category));
     setSortDirection('asc');
@@ -212,6 +217,53 @@ export function Assets() {
     }
   })();
 
+  // 获取资产用于日期筛选的字段
+  const getAssetDateValue = (asset: AnyAsset): string | undefined => {
+    switch (asset.category) {
+      case 'bank_deposit': return (asset as BankDeposit).depositDate;
+      case 'fund_wealth': return (asset as FundWealth).maturityDate;
+      case 'other_asset': return (asset as OtherAsset).maturityDate;
+      case 'securities': return undefined;
+    }
+  };
+
+  // 日期范围匹配：无日期不过滤；只有起始则取该月及之后；只有结束则取该日及之前；都有则取月份区间
+  const isDateInFilter = (dateStr: string, start: string, end: string): boolean => {
+    const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return true;
+
+    if (start && end) {
+      const startMonth = new Date(start);
+      startMonth.setDate(1);
+      const endMonth = new Date(end);
+      endMonth.setMonth(endMonth.getMonth() + 1, 0);
+      return date >= startMonth && date <= endMonth;
+    }
+
+    if (start) {
+      const startMonth = new Date(start);
+      startMonth.setDate(1);
+      return date >= startMonth;
+    }
+
+    if (end) {
+      const endDate = new Date(end);
+      return date <= endDate;
+    }
+
+    return true;
+  };
+
+  // 获取资产金额
+  const getAssetAmount = (asset: AnyAsset): number => {
+    switch (asset.category) {
+      case 'bank_deposit': return (asset as BankDeposit).amount ?? 0;
+      case 'securities': return (asset as Securities).currentValue ?? 0;
+      case 'fund_wealth': return (asset as FundWealth).currentValue ?? 0;
+      case 'other_asset': return (asset as OtherAsset).currentValue ?? 0;
+    }
+  };
+
   const filteredAssets = assets
     .filter((a) => a.category === selectedCategory)
     .filter((a) => {
@@ -231,6 +283,13 @@ export function Assets() {
       // 定/活期筛选（仅银行存款）
       if (selectedCategory === 'bank_deposit' && filterDepositType !== 'all') {
         if ((a as BankDeposit).depositType !== filterDepositType) {
+          return false;
+        }
+      }
+      // 日期范围筛选（证券除外）
+      if (selectedCategory !== 'securities') {
+        const dateValue = getAssetDateValue(a);
+        if (dateValue && !isDateInFilter(dateValue, filterStartDate, filterEndDate)) {
           return false;
         }
       }
@@ -254,13 +313,22 @@ export function Assets() {
     });
   }, [filteredAssets, sortField, sortDirection]);
 
-  const hasActiveFilter = filterInstitution.trim() !== '' || filterAccountName.trim() !== '' || filterDepositType !== 'all';
+  const hasActiveFilter =
+    filterInstitution.trim() !== '' ||
+    filterAccountName.trim() !== '' ||
+    filterDepositType !== 'all' ||
+    filterStartDate !== '' ||
+    filterEndDate !== '';
 
   const handleResetFilters = () => {
     setFilterInstitution('');
     setFilterAccountName('');
     setFilterDepositType('all');
+    setFilterStartDate('');
+    setFilterEndDate('');
   };
+
+  const totalAmount = filteredAssets.reduce((sum, asset) => sum + getAssetAmount(asset), 0);
 
   const renderFormFields = () => {
     switch (selectedCategory) {
@@ -440,164 +508,204 @@ export function Assets() {
 
   return (
     <div>
-      <div className="mb-8 flex justify-between items-center">
-        <div>
-          <h2 className="font-display text-3xl font-bold text-wealth-dark mb-2">资产管理</h2>
-          <p className="text-wealth-text-light font-body">管理您的各类资产</p>
+      <div className="screen-only">
+        <div className="mb-8 flex justify-between items-center">
+          <div>
+            <h2 className="font-display text-3xl font-bold text-wealth-dark mb-2">资产管理</h2>
+            <p className="text-wealth-text-light font-body">管理您的各类资产</p>
+          </div>
         </div>
-      </div>
 
-      {/* 分类标签页 */}
-      <div className="bg-white rounded-xl border border-wealth-border mb-6">
-        <div className="flex border-b border-wealth-border">
-          {(Object.keys(categoryLabels) as AssetCategory[]).map((category) => (
-            <button
-              key={category}
-              onClick={() => handleCategoryChange(category)}
-              className={`px-6 py-4 font-medium transition-all ${
-                selectedCategory === category
+        {/* 分类标签页 */}
+        <div className="bg-white rounded-xl border border-wealth-border mb-6">
+          <div className="flex border-b border-wealth-border">
+            {(Object.keys(categoryLabels) as AssetCategory[]).map((category) => (
+              <button
+                key={category}
+                onClick={() => handleCategoryChange(category)}
+                className={`px-6 py-4 font-medium transition-all ${selectedCategory === category
                   ? 'text-wealth-gold border-b-2 border-wealth-gold'
                   : 'text-wealth-text-light hover:text-wealth-text'
-              }`}
-            >
-              {categoryLabels[category]}
-            </button>
-          ))}
-        </div>
-
-        <div className="p-6">
-          {/* 筛选区域 */}
-          <div className="bg-wealth-cream/30 rounded-xl p-4 mb-4 border border-wealth-border">
-            <div className="flex items-center gap-2 mb-3">
-              <Filter size={16} className="text-wealth-gold" />
-              <span className="text-sm font-medium text-wealth-text">筛选</span>
-              {hasActiveFilter && (
-                <button
-                  onClick={handleResetFilters}
-                  className="ml-auto flex items-center gap-1 text-xs text-wealth-text-light hover:text-wealth-gold transition-colors"
-                >
-                  <RotateCcw size={12} />
-                  重置
-                </button>
-              )}
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <div>
-                <label className="block text-xs font-medium text-wealth-text-light mb-1">{institutionLabel}</label>
-                <input
-                  type="text"
-                  value={filterInstitution}
-                  onChange={(e) => setFilterInstitution(e.target.value)}
-                  placeholder={`输入${institutionLabel}筛选`}
-                  className="w-full px-3 py-2 text-sm border border-wealth-border rounded-lg focus:outline-none focus:ring-2 focus:ring-wealth-gold bg-white"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-wealth-text-light mb-1">户名</label>
-                <input
-                  type="text"
-                  value={filterAccountName}
-                  onChange={(e) => setFilterAccountName(e.target.value)}
-                  placeholder="输入户名筛选"
-                  className="w-full px-3 py-2 text-sm border border-wealth-border rounded-lg focus:outline-none focus:ring-2 focus:ring-wealth-gold bg-white"
-                />
-              </div>
-              {selectedCategory === 'bank_deposit' && (
-                <div>
-                  <label className="block text-xs font-medium text-wealth-text-light mb-1">定/活期</label>
-                  <select
-                    value={filterDepositType}
-                    onChange={(e) => setFilterDepositType(e.target.value as 'all' | 'fixed' | 'demand')}
-                    className="w-full px-3 py-2 text-sm border border-wealth-border rounded-lg focus:outline-none focus:ring-2 focus:ring-wealth-gold bg-white"
-                  >
-                    <option value="all">全部</option>
-                    <option value="fixed">定期</option>
-                    <option value="demand">活期</option>
-                  </select>
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="flex justify-between items-center mb-4">
-            <div className="text-sm text-wealth-text-light">
-              共 {filteredAssets.length} 条记录
-              {hasActiveFilter && assets.filter((a) => a.category === selectedCategory).length !== filteredAssets.length && (
-                <span className="ml-1">（已筛选）</span>
-              )}
-            </div>
-            <button
-              onClick={() => handleAdd(selectedCategory)}
-              className="gradient-gold text-white px-6 py-3 rounded-lg font-body font-medium hover:shadow-lg transition-all flex items-center gap-2"
-            >
-              <Plus size={20} />
-              添加{categoryLabels[selectedCategory]}
-            </button>
-          </div>
-
-          {filteredAssets.length === 0 ? (
-            <div className="bg-wealth-cream/50 rounded-xl p-12 border border-wealth-border text-center">
-              <p className="text-wealth-text-light font-body">
-                暂无{categoryLabels[selectedCategory]}记录，点击"添加"开始记录
-              </p>
-            </div>
-          ) : (
-            <div className="bg-white rounded-xl border border-wealth-border overflow-hidden">
-              <table className="w-full">
-                <thead className="bg-wealth-cream">
-                  <tr>{renderTableColumns()}</tr>
-                </thead>
-                <tbody className="divide-y divide-wealth-border">
-                  {sortedAssets.map(renderTableRow)}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* 表单弹窗 */}
-      {showForm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl p-8 w-full max-w-2xl max-h-[90vh] overflow-auto">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="font-display text-2xl font-bold text-wealth-dark">
-                {editingId ? '编辑' : '添加'}{categoryLabels[selectedCategory]}
-              </h3>
-              <button
-                onClick={() => {
-                  setShowForm(false);
-                  setEditingId(null);
-                }}
-                className="text-wealth-text-light hover:text-wealth-dark"
+                  }`}
               >
-                <X size={24} />
+                {categoryLabels[category]}
+              </button>
+            ))}
+          </div>
+
+          <div className="p-6">
+            {/* 筛选区域 */}
+            <div className="bg-wealth-cream/30 rounded-xl p-4 mb-4 border border-wealth-border">
+              <div className="flex items-center gap-2 mb-3">
+                <Filter size={16} className="text-wealth-gold" />
+                <span className="text-sm font-medium text-wealth-text">筛选</span>
+                {hasActiveFilter && (
+                  <button
+                    onClick={handleResetFilters}
+                    className="ml-auto flex items-center gap-1 text-xs text-wealth-text-light hover:text-wealth-gold transition-colors"
+                  >
+                    <RotateCcw size={12} />
+                    重置
+                  </button>
+                )}
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-wealth-text-light mb-1">{institutionLabel}</label>
+                  <input
+                    type="text"
+                    value={filterInstitution}
+                    onChange={(e) => setFilterInstitution(e.target.value)}
+                    placeholder={`输入${institutionLabel}筛选`}
+                    className="w-full px-3 py-2 text-sm border border-wealth-border rounded-lg focus:outline-none focus:ring-2 focus:ring-wealth-gold bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-wealth-text-light mb-1">户名</label>
+                  <input
+                    type="text"
+                    value={filterAccountName}
+                    onChange={(e) => setFilterAccountName(e.target.value)}
+                    placeholder="输入户名筛选"
+                    className="w-full px-3 py-2 text-sm border border-wealth-border rounded-lg focus:outline-none focus:ring-2 focus:ring-wealth-gold bg-white"
+                  />
+                </div>
+                {selectedCategory === 'bank_deposit' && (
+                  <div>
+                    <label className="block text-xs font-medium text-wealth-text-light mb-1">定/活期</label>
+                    <select
+                      value={filterDepositType}
+                      onChange={(e) => setFilterDepositType(e.target.value as 'all' | 'fixed' | 'demand')}
+                      className="w-full px-3 py-2 text-sm border border-wealth-border rounded-lg focus:outline-none focus:ring-2 focus:ring-wealth-gold bg-white"
+                    >
+                      <option value="all">全部</option>
+                      <option value="fixed">定期</option>
+                      <option value="demand">活期</option>
+                    </select>
+                  </div>
+                )}
+                {selectedCategory !== 'securities' && (
+                  <>
+                    <div>
+                      <label className="block text-xs font-medium text-wealth-text-light mb-1">起始日期</label>
+                      <input
+                        type="date"
+                        value={filterStartDate}
+                        onChange={(e) => setFilterStartDate(e.target.value)}
+                        className="w-full px-3 py-2 text-sm border border-wealth-border rounded-lg focus:outline-none focus:ring-2 focus:ring-wealth-gold bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-wealth-text-light mb-1">结束日期</label>
+                      <input
+                        type="date"
+                        value={filterEndDate}
+                        onChange={(e) => setFilterEndDate(e.target.value)}
+                        className="w-full px-3 py-2 text-sm border border-wealth-border rounded-lg focus:outline-none focus:ring-2 focus:ring-wealth-gold bg-white"
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* 汇总区域 */}
+            <div className="bg-wealth-gold/10 rounded-xl p-4 mb-4 border border-wealth-gold/20">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs text-wealth-text-light mb-1">汇总</p>
+                  <p className="text-lg font-semibold text-wealth-dark">
+                    共 <span className="text-wealth-gold">{filteredAssets.length}</span> 笔
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs text-wealth-text-light mb-1">金额合计</p>
+                  <p className="text-xl font-bold text-wealth-dark">{formatCurrency(totalAmount)}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-between items-center mb-4">
+              <div className="text-sm text-wealth-text-light">
+                共 {filteredAssets.length} 条记录
+                {hasActiveFilter && assets.filter((a) => a.category === selectedCategory).length !== filteredAssets.length && (
+                  <span className="ml-1">（已筛选）</span>
+                )}
+              </div>
+              <button
+                onClick={() => handleAdd(selectedCategory)}
+                className="gradient-gold text-white px-6 py-3 rounded-lg font-body font-medium hover:shadow-lg transition-all flex items-center gap-2"
+              >
+                <Plus size={20} />
+                添加{categoryLabels[selectedCategory]}
               </button>
             </div>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              {renderFormFields()}
-              <div className="flex gap-3 pt-4">
+
+            {filteredAssets.length === 0 ? (
+              <div className="bg-wealth-cream/50 rounded-xl p-12 border border-wealth-border text-center">
+                <p className="text-wealth-text-light font-body">
+                  暂无{categoryLabels[selectedCategory]}记录，点击"添加"开始记录
+                </p>
+              </div>
+            ) : (
+              <div className="bg-white rounded-xl border border-wealth-border overflow-hidden">
+                <table className="w-full">
+                  <thead className="bg-wealth-cream">
+                    <tr>{renderTableColumns()}</tr>
+                  </thead>
+                  <tbody className="divide-y divide-wealth-border">
+                    {sortedAssets.map(renderTableRow)}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* 表单弹窗 */}
+        {showForm && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-xl p-8 w-full max-w-2xl max-h-[90vh] overflow-auto">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="font-display text-2xl font-bold text-wealth-dark">
+                  {editingId ? '编辑' : '添加'}{categoryLabels[selectedCategory]}
+                </h3>
                 <button
-                  type="submit"
-                  className="flex-1 gradient-gold text-white py-3 rounded-lg font-body font-medium hover:shadow-lg transition-all"
-                >
-                  {editingId ? '更新' : '添加'}
-                </button>
-                <button
-                  type="button"
                   onClick={() => {
                     setShowForm(false);
                     setEditingId(null);
                   }}
-                  className="flex-1 bg-gray-100 text-wealth-text py-3 rounded-lg font-body font-medium hover:bg-gray-200 transition-all"
+                  className="text-wealth-text-light hover:text-wealth-dark"
                 >
-                  取消
+                  <X size={24} />
                 </button>
               </div>
-            </form>
+              <form onSubmit={handleSubmit} className="space-y-4">
+                {renderFormFields()}
+                <div className="flex gap-3 pt-4">
+                  <button
+                    type="submit"
+                    className="flex-1 gradient-gold text-white py-3 rounded-lg font-body font-medium hover:shadow-lg transition-all"
+                  >
+                    {editingId ? '更新' : '添加'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowForm(false);
+                      setEditingId(null);
+                    }}
+                    className="flex-1 bg-gray-100 text-wealth-text py-3 rounded-lg font-body font-medium hover:bg-gray-200 transition-all"
+                  >
+                    取消
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
+      <PrintableAssetTable />
     </div>
   );
 }

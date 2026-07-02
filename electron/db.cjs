@@ -14,10 +14,14 @@ function getLegacyDbPaths() {
   const userData = app.getPath('userData');
   const roaming = path.dirname(userData);
   return [
+    // 历史版本 wealth-tracker 默认路径（迁移来源）
     path.join(roaming, 'wealth-tracker', 'wealth-tracker.db'),
-    path.join(roaming, 'wealth-tracker', 'WealthCare.db'),
+    path.join(roaming, 'Wealth Tracker', 'wealth-tracker.db'),
+    // 同产品名历史文件名
     path.join(roaming, 'wealthcare', 'wealthcare.db'),
     path.join(roaming, 'wealthcare', 'WealthCare.db'),
+    path.join(roaming, 'WealthCare', 'wealthcare.db'),
+    path.join(roaming, 'WealthCare', 'WealthCare.db'),
   ];
 }
 

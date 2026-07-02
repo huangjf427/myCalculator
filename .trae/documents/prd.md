@@ -260,8 +260,9 @@ flowchart TD
 | 验收项 | 通过标准 |
 |--------|----------|
 | 数据持久化 | 重启应用后资产/负债/变动记录不丢失 |
-| SQLite 存储 | 数据保存到本地 SQLite 文件（默认 `%APPDATA%/wealth-tracker/wealth-tracker.db`） |
-| 配置独立 | 数据库路径配置保存在 `%APPDATA%/wealth-tracker/config.json`，与 db 文件分离 |
+| SQLite 存储 | 数据保存到本地 SQLite 文件（默认 `%APPDATA%/WealthCare/WealthCare.db`） |
+| 配置独立 | 数据库路径配置保存在 `%APPDATA%/WealthCare/config.json`，与 db 文件分离 |
+| 旧数据库迁移 | 首次启动检测到历史版本 `wealth-tracker.db` 时，自动迁移数据到新的 `WealthCare.db` |
 | LocalStorage 迁移 | 首次从老版本 LocalStorage 启动时，数据可自动迁移到 SQLite |
 | undefined 参数 | 所有写入 SQLite 的参数均做过默认值处理，不会触发 sql.js 的 undefined 绑定错误 |
 

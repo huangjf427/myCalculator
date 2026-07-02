@@ -1,8 +1,6 @@
 import { useEffect, useState } from 'react';
-import { FolderOpen, RotateCcw, Database, AlertTriangle, CheckCircle2, Printer, Upload, Download } from 'lucide-react';
+import { FolderOpen, RotateCcw, Database, AlertTriangle, CheckCircle2, Upload, Download } from 'lucide-react';
 import { useWealthStore } from '@/store/wealthStore';
-import { PrintableAssetTable } from '@/components/print/PrintableAssetTable';
-import { PrintableLiabilityTable } from '@/components/print/PrintableLiabilityTable';
 
 export function Settings() {
   const electronAPI = typeof window !== 'undefined' ? window.electronAPI : undefined;
@@ -201,36 +199,12 @@ export function Settings() {
         )}
       </section>
 
-      <section className="mt-6 bg-white rounded-xl shadow-sm border border-wealth-cream p-6">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-lg bg-wealth-gold/10 flex items-center justify-center">
-            <Printer size={20} className="text-wealth-gold" />
-          </div>
-          <div>
-            <h3 className="font-display text-lg font-semibold text-wealth-dark">打印资产/负债明细</h3>
-            <p className="text-xs text-wealth-text-light">按分类筛选后打印明细数据</p>
-          </div>
-        </div>
-
-        <div className="space-y-6">
-          <div>
-            <h4 className="font-semibold text-wealth-text mb-3">资产明细</h4>
-            <PrintableAssetTable />
-          </div>
-          <div className="border-t border-wealth-cream pt-6">
-            <h4 className="font-semibold text-wealth-text mb-3">负债明细</h4>
-            <PrintableLiabilityTable />
-          </div>
-        </div>
-      </section>
-
       <section className="mt-6 bg-amber-50 border border-amber-200 rounded-xl p-5">
         <div className="flex items-start gap-3">
           <AlertTriangle size={20} className="text-amber-600 flex-shrink-0 mt-0.5" />
           <div className="text-sm text-amber-800">
             <p className="font-semibold mb-1">注意事项</p>
             <ul className="list-disc list-inside space-y-1 text-amber-700">
-              <li>首次启动时，若当前位置没有数据库，应用会自动从旧版本默认路径（%APPDATA%/wealth-tracker 等）迁移数据。</li>
               <li>切换数据库位置后，应用将加载新位置的数据库文件（若不存在则会自动创建空数据库）。</li>
               <li>可通过「导入数据库」手动恢复旧版本或备份的数据库文件，导入前会自动备份当前数据库。</li>
             </ul>

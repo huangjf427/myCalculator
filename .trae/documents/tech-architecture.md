@@ -40,7 +40,7 @@ flowchart TB
 
 - **渲染进程**：React 应用通过 `window.electronAPI`（preload 暴露）发起 IPC 调用
 - **主进程**：处理 IPC 请求，操作 SQLite 文件与配置文件
-- **持久化层**：SQLite 数据库文件 + config.json 配置文件，均位于 `%APPDATA%/wealth-tracker/`
+- **持久化层**：SQLite 数据库文件 `WealthCare.db` + `config.json` 配置文件，均位于 `%APPDATA%/WealthCare/`；首次启动会自动从历史版本路径迁移旧数据库
 - **浏览器回退**：开发模式下若不在 Electron 环境中，自动回退到 LocalStorage
 
 ## 2. 技术描述
