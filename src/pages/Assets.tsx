@@ -549,7 +549,7 @@ export function Assets() {
                   </button>
                 )}
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-wealth-text-light mb-1">{institutionLabel}</label>
                   <input
