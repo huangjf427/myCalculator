@@ -1,8 +1,9 @@
 import { useMemo } from 'react';
 import { useWealthStore } from '@/store/wealthStore';
-import { getAssetAmount, getLiabilityAmount } from '@/types';
+import { getAssetAmount, getLiabilityAmount, getAssetDisplayName, getLiabilityDisplayName } from '@/types';
+import type { AnyAsset, AnyLiability } from '@/types';
 import { Printer } from 'lucide-react';
-import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts';
+import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart, Line } from 'recharts';
 
 export function Analysis() {
   const assets = useWealthStore((state) => state.assets);
@@ -34,6 +35,8 @@ export function Analysis() {
   const monthlyData = useMemo(() => {
     const assetMap = new Map<string, number>();
     const liabilityMap = new Map<string, number>();
+    const assetItemsMap = new Map<string, AnyAsset[]>();
+    const liabilityItemsMap = new Map<string, AnyLiability[]>();
 
     const now = new Date();
     const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
@@ -43,6 +46,9 @@ export function Analysis() {
       const date = ((asset as unknown) as { maturityDate?: string }).maturityDate;
       const month = getYearMonth(date) || fallbackMonth;
       assetMap.set(month, (assetMap.get(month) ?? 0) + getAssetAmount(asset));
+      const list = assetItemsMap.get(month) ?? [];
+      list.push(asset);
+      assetItemsMap.set(month, list);
     }
 
     for (const liability of liabilities) {
@@ -53,6 +59,9 @@ export function Analysis() {
       const month = getYearMonth(date);
       if (month) {
         liabilityMap.set(month, (liabilityMap.get(month) ?? 0) + getLiabilityAmount(liability));
+        const list = liabilityItemsMap.get(month) ?? [];
+        list.push(liability);
+        liabilityItemsMap.set(month, list);
       }
     }
 
@@ -62,6 +71,8 @@ export function Analysis() {
       资产: assetMap.get(month) ?? 0,
       负债: liabilityMap.get(month) ?? 0,
       净资产: (assetMap.get(month) ?? 0) - (liabilityMap.get(month) ?? 0),
+      assetItems: assetItemsMap.get(month) ?? [],
+      liabilityItems: liabilityItemsMap.get(month) ?? [],
     }));
   }, [assets, liabilities]);
 
@@ -71,6 +82,48 @@ export function Analysis() {
       currency: 'CNY',
       minimumFractionDigits: 2,
     }).format(value);
+  };
+
+  const TrendTooltip = ({ active, payload }: { active?: boolean; payload?: Array<{ dataKey?: string; name?: string; value?: number; color?: string; payload?: { assetItems: AnyAsset[]; liabilityItems: AnyLiability[] } }> }) => {
+    if (!active || !payload || payload.length === 0) return null;
+
+    const item = payload[0];
+    if (!item) return null;
+    if (item.dataKey === '净资产') {
+      return (
+        <div className="bg-white p-3 border border-wealth-border rounded-lg shadow-lg">
+          <p className="font-semibold text-wealth-dark mb-1">{item.name}</p>
+          <p className="text-sm" style={{ color: item.color }}>
+            {formatCurrency(item.value ?? 0)}
+          </p>
+        </div>
+      );
+    }
+
+    const data = item.payload;
+    const isAsset = item.dataKey === '资产';
+    const items = isAsset ? data?.assetItems : data?.liabilityItems;
+
+    return (
+      <div className="bg-white p-3 border border-wealth-border rounded-lg shadow-lg max-w-xs">
+        <p className="font-semibold text-wealth-dark mb-2">{item.name}</p>
+        <p className="text-sm mb-2" style={{ color: item.color }}>
+          合计：{formatCurrency(item.value ?? 0)}
+        </p>
+        <div className="space-y-1 max-h-40 overflow-y-auto">
+          {items?.map((it, idx) => (
+            <div key={`${isAsset ? 'a' : 'l'}-${idx}`} className="flex justify-between text-xs gap-4">
+              <span className="text-wealth-text truncate max-w-[140px]">
+                {isAsset ? getAssetDisplayName(it as AnyAsset) : getLiabilityDisplayName(it as AnyLiability)}
+              </span>
+              <span className={isAsset ? 'text-green-600' : 'text-red-600'}>
+                {formatCurrency(isAsset ? getAssetAmount(it as AnyAsset) : getLiabilityAmount(it as AnyLiability))}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
   };
 
   const assetData = [
@@ -250,16 +303,16 @@ export function Analysis() {
         </h3>
         {monthlyData.length > 0 ? (
           <ResponsiveContainer width="100%" height={400}>
-            <LineChart data={monthlyData}>
+            <ComposedChart data={monthlyData}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="month" />
               <YAxis />
-              <Tooltip formatter={(value: number) => formatCurrency(value)} />
+              <Tooltip content={<TrendTooltip />} shared={false} />
               <Legend />
-              <Line type="monotone" dataKey="资产" stroke="#10b981" strokeWidth={2} dot={false} />
-              <Line type="monotone" dataKey="负债" stroke="#ef4444" strokeWidth={2} dot={false} />
-              <Line type="monotone" dataKey="净资产" stroke="#3b82f6" strokeWidth={2} dot={false} />
-            </LineChart>
+              <Bar dataKey="资产" fill="#10b981" name="资产" />
+              <Bar dataKey="负债" fill="#ef4444" name="负债" />
+              <Line type="monotone" dataKey="净资产" stroke="#3b82f6" strokeWidth={2} dot={false} name="净资产" />
+            </ComposedChart>
           </ResponsiveContainer>
         ) : (
           <div className="h-[400px] flex items-center justify-center text-wealth-text-light">
@@ -318,10 +371,9 @@ export function Analysis() {
             </div>
             <div className="h-3 bg-gray-100 rounded-full overflow-hidden">
               <div
-                className={`h-full transition-all duration-500 ${
-                  summary.debtRatio > 0.5 ? 'bg-red-500' : 'bg-green-500'
-                }`}
-                style={{ width: `${Math.min(summary.debtRatio * 100, 100)}%` }}
+                className={`h-full transition-all duration-500 ${summary.debtRatio > 0.5 ? 'bg-red-500' : 'bg-green-500'
+                  }`}
+                style={{ inline-size: `${Math.min(summary.debtRatio * 100, 100)}%` }}
               />
             </div>
             <p className="text-xs text-wealth-text-light mt-1">
