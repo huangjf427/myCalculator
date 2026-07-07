@@ -373,7 +373,7 @@ export function Analysis() {
               <div
                 className={`h-full transition-all duration-500 ${summary.debtRatio > 0.5 ? 'bg-red-500' : 'bg-green-500'
                   }`}
-                style={{ inline-size: `${Math.min(summary.debtRatio * 100, 100)}%` }}
+                style={{ width: `${Math.min(summary.debtRatio * 100, 100)}%` }}
               />
             </div>
             <p className="text-xs text-wealth-text-light mt-1">

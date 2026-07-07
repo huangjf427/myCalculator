@@ -30,7 +30,9 @@ export function PrintableAssetTable() {
           if (!(a.accountName || '').toLowerCase().includes(accountName.trim().toLowerCase())) return false;
         }
         if (category === 'bank_deposit' && depositType !== 'all') {
-          if ((a as BankDeposit).depositType !== depositType) return false;
+          // 兼容历史数据中 depositType 可能为 undefined 的情况，视同活期
+          const dt = (a as BankDeposit).depositType || 'demand';
+          if (dt !== depositType) return false;
         }
         return true;
       });

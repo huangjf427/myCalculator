@@ -64,7 +64,9 @@ export function Assets() {
 
   const handleAdd = (category: AssetCategory) => {
     setSelectedCategory(category);
-    setFormData({ category });
+    // 确保银行存款默认 depositType 为 'demand'，避免因未触发 select onChange
+    // 导致 formData 中 depositType 为 undefined，进而导致活期筛选失效
+    setFormData({ category, ...(category === 'bank_deposit' ? { depositType: 'demand' } : {}) } as Partial<AnyAsset>);
     setEditingId(null);
     setShowForm(true);
   };
@@ -79,6 +81,11 @@ export function Assets() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     let submitData = { ...formData };
+
+    // 银行：确保 depositType 不为空，兜底默认为活期
+    if (submitData.category === 'bank_deposit' && !(submitData as Partial<BankDeposit>).depositType) {
+      (submitData as Partial<BankDeposit>).depositType = 'demand';
+    }
 
     // 银行：计算到期日和到期金额
     if (submitData.category === 'bank_deposit') {
@@ -282,7 +289,9 @@ export function Assets() {
       }
       // 定/活期筛选（仅银行存款）
       if (selectedCategory === 'bank_deposit' && filterDepositType !== 'all') {
-        if ((a as BankDeposit).depositType !== filterDepositType) {
+        // 兼容历史数据中 depositType 可能为 undefined 的情况，视同活期
+        const dt = (a as BankDeposit).depositType || 'demand';
+        if (dt !== filterDepositType) {
           return false;
         }
       }
