@@ -10,6 +10,135 @@ import { getAssetAmount, getAssetDisplayName, getLiabilityAmount, getLiabilityDi
 const electronAPI = typeof window !== 'undefined' ? window.electronAPI : undefined;
 const isElectron = !!electronAPI;
 
+// 比较两个对象在关注字段上的差异，返回人类可读的摘要
+const AUDIT_FIELDS = [
+  'amount', 'principal', 'currentValue', 'profit', 'liabilityAmount',
+  'bankName', 'accountName', 'institution', 'productName', 'assetName',
+  'depositType', 'interestRate', 'depositDate', 'maturityDate', 'maturityAmount',
+  'term', 'repaymentDate', 'startDate', 'expectedRepaymentDate',
+  'isInstallment', 'installmentAmount', 'loanName', 'notes',
+];
+
+function diffSummary(before: Record<string, unknown>, after: Record<string, unknown>): string {
+  if (!before || !after) return '';
+  const parts: string[] = [];
+  for (const f of AUDIT_FIELDS) {
+    const bv = before[f];
+    const av = after[f];
+    if (bv === av) continue;
+    // 跳过 undefined 在两侧都未定义的情况
+    if (bv == null && av == null) continue;
+    // 数字做合理比较
+    const eq = typeof bv === 'number' && typeof av === 'number'
+      ? Math.abs(bv - av) < 1e-9
+      : bv === av;
+    if (eq) continue;
+    parts.push(`${f}: ${formatVal(bv)} → ${formatVal(av)}`);
+    if (parts.length >= 6) {
+      parts.push('…');
+      break;
+    }
+  }
+  return parts.join('，');
+}
+
+function formatVal(v: unknown): string {
+  if (v == null) return '空';
+  if (typeof v === 'number') {
+    return Number.isInteger(v) ? String(v) : v.toFixed(2);
+  }
+  if (typeof v === 'boolean') return v ? '是' : '否';
+  const s = String(v);
+  return s.length > 24 ? s.slice(0, 24) + '…' : s;
+}
+
+function buildAuditSummary(
+  type: 'add' | 'edit' | 'delete',
+  target: 'asset' | 'liability',
+  name: string,
+  amount: number,
+  before?: Record<string, unknown>,
+  after?: Record<string, unknown>,
+): string {
+  const targetLabel = target === 'asset' ? '资产' : '负债';
+  const amountStr = `¥${Number(amount || 0).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
+  if (type === 'add') {
+    return `新增${targetLabel}「${name}」${amountStr}`;
+  }
+  if (type === 'delete') {
+    return `删除${targetLabel}「${name}」${amountStr}`;
+  }
+  // edit
+  const diff = diffSummary(before || {}, after || {});
+  return diff
+    ? `修改${targetLabel}「${name}」${amountStr}（${diff}）`
+    : `修改${targetLabel}「${name}」${amountStr}`;
+}
+
+// 集中写入审计：changes 表（结构化）+ logger 文件（用于截断/归档）
+async function writeAudit(args: {
+  type: 'add' | 'edit' | 'delete';
+  target: 'asset' | 'liability';
+  name: string;
+  category: string;
+  amount: number;
+  timestamp: string;
+  before?: unknown;
+  after?: unknown;
+}): Promise<ChangeRecord> {
+  const summary = buildAuditSummary(
+    args.type,
+    args.target,
+    args.name,
+    args.amount,
+    args.before as Record<string, unknown> | undefined,
+    args.after as Record<string, unknown> | undefined,
+  );
+  const change: ChangeRecord = {
+    id: generateId(),
+    type: args.type,
+    target: args.target,
+    name: args.name,
+    category: args.category,
+    amount: args.amount,
+    timestamp: args.timestamp,
+    summary,
+    before: args.before,
+    after: args.after,
+  };
+  if (isElectron) {
+    try {
+      await electronAPI!.db.addChange(change);
+    } catch (e) {
+      console.error('写入操作审计(changes)失败:', e);
+    }
+    // 双写到文件日志，包含变更前后的关键信息
+    try {
+      const loggerApi = electronAPI?.logger;
+      if (loggerApi) {
+        const amt = Number(args.amount || 0).toFixed(2);
+        const typeLabel = args.type === 'add' ? '新增' : args.type === 'edit' ? '修改' : '删除';
+        let logContent = `[${args.target}] ${typeLabel}「${args.name}」 ¥${amt}`;
+        if (args.type === 'edit' && args.before && args.after) {
+          const diff = diffSummary(args.before as Record<string, unknown>, args.after as Record<string, unknown>);
+          if (diff) logContent += `  | 变更: ${diff}`;
+        } else if (args.type === 'add' && args.after) {
+          // 新增时展示完整数据（截断防止过长）
+          const s = JSON.stringify(args.after);
+          logContent += `  | 数据: ${s.length > 150 ? s.slice(0, 150) + '…' : s}`;
+        } else if (args.type === 'delete' && args.before) {
+          const s = JSON.stringify(args.before);
+          logContent += `  | 快照: ${s.length > 150 ? s.slice(0, 150) + '…' : s}`;
+        }
+        await loggerApi.write('info', 'audit', logContent);
+      }
+    } catch (e) {
+      console.error('写入操作审计(文件日志)失败:', e);
+    }
+  }
+  return change;
+}
+
 // localStorage 回退（浏览器开发模式）
 const STORAGE_KEYS = {
   ASSETS: 'wealthcare_assets',
@@ -59,7 +188,7 @@ async function loadData(): Promise<{ assets: AnyAsset[]; liabilities: AnyLiabili
 
       const assets = await electronAPI!.db.getAllAssets();
       const liabilities = await electronAPI!.db.getAllLiabilities();
-      const changes = await electronAPI!.db.getAllChanges();
+      const changes = await electronAPI!.db.getAllChanges({ limit: 200 });
       return { assets, liabilities, changes };
     } catch (e) {
       console.error('数据库初始化失败，回退到 localStorage', e);
@@ -140,27 +269,25 @@ export const useWealthStore = create<WealthState>((set, get) => ({
   addAsset: async (asset) => {
     const now = new Date().toISOString();
     const newAsset = { ...asset, id: generateId(), createdAt: now, updatedAt: now } as AnyAsset;
-    const change: ChangeRecord = {
-      id: generateId(),
+    const change = await writeAudit({
       type: 'add',
       target: 'asset',
       name: getAssetDisplayName(newAsset),
       category: newAsset.category,
       amount: getAssetAmount(newAsset),
       timestamp: now,
-    };
+      after: newAsset,
+    });
 
     if (isElectron) {
       await electronAPI!.db.addAsset(newAsset);
-      await electronAPI!.db.addChange(change);
     } else {
       saveToStorage(STORAGE_KEYS.ASSETS, [...get().assets, newAsset]);
-      saveToStorage(STORAGE_KEYS.CHANGES, [change, ...get().changes].slice(0, 50));
     }
 
     set((state) => ({
       assets: [...state.assets, newAsset],
-      changes: [change, ...state.changes].slice(0, 50),
+      changes: [change, ...state.changes].slice(0, 200),
     }));
   },
 
@@ -169,28 +296,27 @@ export const useWealthStore = create<WealthState>((set, get) => ({
     const existing = get().assets.find((a) => a.id === id);
     if (!existing) return;
     const updated = { ...existing, ...updates, updatedAt: now } as AnyAsset;
-    const change: ChangeRecord = {
-      id: generateId(),
+    const change = await writeAudit({
       type: 'edit',
       target: 'asset',
       name: getAssetDisplayName(updated),
       category: updated.category,
       amount: getAssetAmount(updated),
       timestamp: now,
-    };
+      before: existing,
+      after: updated,
+    });
 
     if (isElectron) {
       await electronAPI!.db.updateAsset(id, updated);
-      await electronAPI!.db.addChange(change);
     } else {
       const assets = get().assets.map((a) => (a.id === id ? updated : a));
       saveToStorage(STORAGE_KEYS.ASSETS, assets);
-      saveToStorage(STORAGE_KEYS.CHANGES, [change, ...get().changes].slice(0, 50));
     }
 
     set((state) => ({
       assets: state.assets.map((a) => (a.id === id ? updated : a)),
-      changes: [change, ...state.changes].slice(0, 50),
+      changes: [change, ...state.changes].slice(0, 200),
     }));
   },
 
@@ -198,55 +324,51 @@ export const useWealthStore = create<WealthState>((set, get) => ({
     const now = new Date().toISOString();
     const target = get().assets.find((a) => a.id === id);
     if (!target) return;
-    const change: ChangeRecord = {
-      id: generateId(),
+    const change = await writeAudit({
       type: 'delete',
       target: 'asset',
       name: getAssetDisplayName(target),
       category: target.category,
       amount: getAssetAmount(target),
       timestamp: now,
-    };
+      before: target,
+    });
 
     if (isElectron) {
       await electronAPI!.db.deleteAsset(id);
-      await electronAPI!.db.addChange(change);
     } else {
       const assets = get().assets.filter((a) => a.id !== id);
       saveToStorage(STORAGE_KEYS.ASSETS, assets);
-      saveToStorage(STORAGE_KEYS.CHANGES, [change, ...get().changes].slice(0, 50));
     }
 
     set((state) => ({
       assets: state.assets.filter((a) => a.id !== id),
-      changes: [change, ...state.changes].slice(0, 50),
+      changes: [change, ...state.changes].slice(0, 200),
     }));
   },
 
   addLiability: async (liability) => {
     const now = new Date().toISOString();
     const newLiability = { ...liability, id: generateId(), createdAt: now, updatedAt: now } as AnyLiability;
-    const change: ChangeRecord = {
-      id: generateId(),
+    const change = await writeAudit({
       type: 'add',
       target: 'liability',
       name: getLiabilityDisplayName(newLiability),
       category: newLiability.category,
       amount: getLiabilityAmount(newLiability),
       timestamp: now,
-    };
+      after: newLiability,
+    });
 
     if (isElectron) {
       await electronAPI!.db.addLiability(newLiability);
-      await electronAPI!.db.addChange(change);
     } else {
       saveToStorage(STORAGE_KEYS.LIABILITIES, [...get().liabilities, newLiability]);
-      saveToStorage(STORAGE_KEYS.CHANGES, [change, ...get().changes].slice(0, 50));
     }
 
     set((state) => ({
       liabilities: [...state.liabilities, newLiability],
-      changes: [change, ...state.changes].slice(0, 50),
+      changes: [change, ...state.changes].slice(0, 200),
     }));
   },
 
@@ -255,28 +377,27 @@ export const useWealthStore = create<WealthState>((set, get) => ({
     const existing = get().liabilities.find((l) => l.id === id);
     if (!existing) return;
     const updated = { ...existing, ...updates, updatedAt: now } as AnyLiability;
-    const change: ChangeRecord = {
-      id: generateId(),
+    const change = await writeAudit({
       type: 'edit',
       target: 'liability',
       name: getLiabilityDisplayName(updated),
       category: updated.category,
       amount: getLiabilityAmount(updated),
       timestamp: now,
-    };
+      before: existing,
+      after: updated,
+    });
 
     if (isElectron) {
       await electronAPI!.db.updateLiability(id, updated);
-      await electronAPI!.db.addChange(change);
     } else {
       const liabilities = get().liabilities.map((l) => (l.id === id ? updated : l));
       saveToStorage(STORAGE_KEYS.LIABILITIES, liabilities);
-      saveToStorage(STORAGE_KEYS.CHANGES, [change, ...get().changes].slice(0, 50));
     }
 
     set((state) => ({
       liabilities: state.liabilities.map((l) => (l.id === id ? updated : l)),
-      changes: [change, ...state.changes].slice(0, 50),
+      changes: [change, ...state.changes].slice(0, 200),
     }));
   },
 
@@ -284,28 +405,26 @@ export const useWealthStore = create<WealthState>((set, get) => ({
     const now = new Date().toISOString();
     const target = get().liabilities.find((l) => l.id === id);
     if (!target) return;
-    const change: ChangeRecord = {
-      id: generateId(),
+    const change = await writeAudit({
       type: 'delete',
       target: 'liability',
       name: getLiabilityDisplayName(target),
       category: target.category,
       amount: getLiabilityAmount(target),
       timestamp: now,
-    };
+      before: target,
+    });
 
     if (isElectron) {
       await electronAPI!.db.deleteLiability(id);
-      await electronAPI!.db.addChange(change);
     } else {
       const liabilities = get().liabilities.filter((l) => l.id !== id);
       saveToStorage(STORAGE_KEYS.LIABILITIES, liabilities);
-      saveToStorage(STORAGE_KEYS.CHANGES, [change, ...get().changes].slice(0, 50));
     }
 
     set((state) => ({
       liabilities: state.liabilities.filter((l) => l.id !== id),
-      changes: [change, ...state.changes].slice(0, 50),
+      changes: [change, ...state.changes].slice(0, 200),
     }));
   },
 
@@ -340,35 +459,3 @@ export const useWealthStore = create<WealthState>((set, get) => ({
     return get().liabilities.filter((l) => l.category === category);
   },
 }));
-
-// 全局类型声明
-declare global {
-  interface Window {
-    electronAPI?: {
-      isElectron: boolean;
-      platform: string;
-      db: {
-        getAllAssets: () => Promise<any[]>;
-        addAsset: (asset: any) => Promise<any>;
-        updateAsset: (id: string, updates: any) => Promise<any>;
-        deleteAsset: (id: string) => Promise<any>;
-        getAllLiabilities: () => Promise<any[]>;
-        addLiability: (liability: any) => Promise<any>;
-        updateLiability: (id: string, updates: any) => Promise<any>;
-        deleteLiability: (id: string) => Promise<any>;
-        getAllChanges: () => Promise<any[]>;
-        addChange: (change: any) => Promise<any>;
-        migrate: (data: { assets: any[]; liabilities: any[]; changes: any[] }) => Promise<boolean>;
-        importDbFile: (filePath: string) => Promise<void>;
-        backupDb: () => Promise<string | null>;
-      };
-      config: {
-        getDbPath: () => Promise<string>;
-        getDefaultDbPath: () => Promise<string>;
-        selectFolder: () => Promise<string | null>;
-        selectDbFile: () => Promise<string | null>;
-        setDbPath: (dbPath: string) => Promise<{ dbPath: string }>;
-      };
-    };
-  }
-}

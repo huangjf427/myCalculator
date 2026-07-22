@@ -74,6 +74,36 @@ function selectDbFile() {
   return result && result.length > 0 ? result[0] : null;
 }
 
+// ========== 日志目录配置 ==========
+
+// 默认日志目录
+function getDefaultLogDir() {
+  return path.join(app.getPath('userData'), 'logs');
+}
+
+// 获取当前日志目录
+function getLogDir() {
+  const config = loadConfig();
+  return config.logDir || getDefaultLogDir();
+}
+
+// 设置日志目录
+function setLogDir(logDir) {
+  const config = loadConfig();
+  config.logDir = logDir;
+  saveConfig(config);
+  return config;
+}
+
+// 选择日志存放文件夹对话框
+function selectLogFolder() {
+  const result = dialog.showOpenDialogSync({
+    title: '选择日志存放位置',
+    properties: ['openDirectory', 'createDirectory'],
+  });
+  return result && result.length > 0 ? result[0] : null;
+}
+
 module.exports = {
   loadConfig,
   saveConfig,
@@ -82,4 +112,8 @@ module.exports = {
   getDefaultDbPath,
   selectFolder,
   selectDbFile,
+  getLogDir,
+  setLogDir,
+  getDefaultLogDir,
+  selectLogFolder,
 };

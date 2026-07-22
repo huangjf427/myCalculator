@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { FolderOpen, RotateCcw, Database, AlertTriangle, CheckCircle2, Upload, Download } from 'lucide-react';
+import { FolderOpen, RotateCcw, Database, AlertTriangle, CheckCircle2, Upload, Download, ScrollText } from 'lucide-react';
 import { useWealthStore } from '@/store/wealthStore';
 
 export function Settings() {
@@ -8,6 +8,8 @@ export function Settings() {
 
   const [dbPath, setDbPath] = useState<string>('');
   const [defaultDbPath, setDefaultDbPath] = useState<string>('');
+  const [logDir, setLogDir] = useState<string>('');
+  const [defaultLogDir, setDefaultLogDir] = useState<string>('');
   const [message, setMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -22,8 +24,12 @@ export function Settings() {
         const def = await electronAPI.config.getDefaultDbPath();
         setDbPath(current);
         setDefaultDbPath(def);
+        const currentLog = await electronAPI.config.getLogDir();
+        const defLog = await electronAPI.config.getDefaultLogDir();
+        setLogDir(currentLog);
+        setDefaultLogDir(defLog);
       } catch (e) {
-        setMessage({ type: 'error', text: '读取数据库路径失败：' + String(e) });
+        setMessage({ type: 'error', text: '读取配置失败：' + String(e) });
       }
     })();
   }, [electronAPI]);
@@ -108,7 +114,45 @@ export function Settings() {
     }
   };
 
+  // 日志目录
+  const handleSelectLogFolder = async () => {
+    if (!electronAPI) return;
+    setLoading(true);
+    setMessage(null);
+    try {
+      const folder = await electronAPI.config.selectLogFolder();
+      if (!folder) {
+        setLoading(false);
+        return;
+      }
+      await electronAPI.config.setLogDir(folder);
+      setLogDir(folder);
+      setMessage({ type: 'success', text: '日志存放位置已切换。新日志将写入该目录，已有日志文件未自动迁移。' });
+    } catch (e) {
+      setMessage({ type: 'error', text: '切换日志位置失败：' + String(e) });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResetLogDefault = async () => {
+    if (!electronAPI) return;
+    if (!confirm('确定恢复为默认日志存放位置吗？')) return;
+    setLoading(true);
+    setMessage(null);
+    try {
+      await electronAPI.config.setLogDir(defaultLogDir);
+      setLogDir(defaultLogDir);
+      setMessage({ type: 'success', text: '已恢复为默认日志存放位置。' });
+    } catch (e) {
+      setMessage({ type: 'error', text: '恢复默认日志位置失败：' + String(e) });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const isDefault = dbPath === defaultDbPath;
+  const isLogDefault = logDir === defaultLogDir;
 
   return (
     <div className="max-w-3xl mx-auto">
@@ -197,6 +241,54 @@ export function Settings() {
             <span>{message.text}</span>
           </div>
         )}
+      </section>
+
+      {/* 日志目录 */}
+      <section className="mt-6 bg-white rounded-xl shadow-sm border border-wealth-cream p-6">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-lg bg-wealth-gold/10 flex items-center justify-center">
+            <ScrollText size={20} className="text-wealth-gold" />
+          </div>
+          <div>
+            <h3 className="font-display text-lg font-semibold text-wealth-dark">日志存放位置</h3>
+            <p className="text-xs text-wealth-text-light">运行日志和操作审计日志将保存到此目录</p>
+          </div>
+        </div>
+
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-wealth-text mb-2">当前日志目录</label>
+          <div className="px-4 py-3 bg-wealth-cream rounded-lg border border-wealth-cream-dark/30 break-all text-sm text-wealth-text font-mono">
+            {logDir || '加载中...'}
+          </div>
+          {isLogDefault ? (
+            <p className="text-xs text-wealth-text-light mt-2 flex items-center gap-1">
+              <CheckCircle2 size={12} /> 当前为默认位置
+            </p>
+          ) : (
+            <p className="text-xs text-wealth-gold mt-2 flex items-center gap-1">
+              <AlertTriangle size={12} /> 当前为自定义位置
+            </p>
+          )}
+        </div>
+
+        <div className="flex flex-wrap gap-3">
+          <button
+            onClick={handleSelectLogFolder}
+            disabled={!electronAPI || loading}
+            className="flex items-center gap-2 px-4 py-2 bg-wealth-gold text-white rounded-lg hover:bg-wealth-gold-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+          >
+            <FolderOpen size={18} />
+            {loading ? '处理中...' : '选择新位置'}
+          </button>
+          <button
+            onClick={handleResetLogDefault}
+            disabled={!electronAPI || loading || isLogDefault}
+            className="flex items-center gap-2 px-4 py-2 bg-wealth-cream text-wealth-text rounded-lg hover:bg-wealth-cream-dark/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium border border-wealth-cream-dark/30"
+          >
+            <RotateCcw size={18} />
+            恢复默认位置
+          </button>
+        </div>
       </section>
 
       <section className="mt-6 bg-amber-50 border border-amber-200 rounded-xl p-5">

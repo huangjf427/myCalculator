@@ -132,9 +132,30 @@ function repairSchema(database) {
         name TEXT NOT NULL,
         category TEXT NOT NULL,
         amount REAL NOT NULL,
-        timestamp TEXT NOT NULL
+        timestamp TEXT NOT NULL,
+        summary TEXT,
+        before_data TEXT,
+        after_data TEXT
       );
     `);
+  } else {
+    // 已有 changes 表时，补齐新增的审计列（向前兼容旧库）
+    const existingColumns = getColumnNames(database, 'changes');
+    const alterSpecs = [
+      { name: 'summary', ddl: 'ALTER TABLE changes ADD COLUMN summary TEXT' },
+      { name: 'before_data', ddl: 'ALTER TABLE changes ADD COLUMN before_data TEXT' },
+      { name: 'after_data', ddl: 'ALTER TABLE changes ADD COLUMN after_data TEXT' },
+    ];
+    for (const { name, ddl } of alterSpecs) {
+      if (!existingColumns.has(name)) {
+        try {
+          database.run(ddl);
+        } catch (e) {
+          // eslint-disable-next-line no-console
+          console.error('为 changes 表新增列失败:', name, e);
+        }
+      }
+    }
   }
 }
 
@@ -316,40 +337,165 @@ function deleteLiability(id) {
   return result.length ? JSON.parse(result[0].values[0][0]) : null;
 }
 
-// ========== 变动记录 ==========
+// ========== 变动记录（操作审计） ==========
 
-function getAllChanges() {
-  const rows = db.exec('SELECT id, type, target, name, category, amount, timestamp FROM changes ORDER BY timestamp DESC LIMIT 50');
+// 构造 SELECT 列表（含可选列），并把内部列名映射为对外字段名
+function buildChangeSelect() {
+  // 检测列是否存在
+  const cols = getColumnNames(db, 'changes');
+  const select = ['id', 'type', 'target', 'name', 'category', 'amount', 'timestamp'];
+  const aliases = []; // { dbCol, apiKey, isJson }
+  if (cols.has('summary')) {
+    select.push('summary');
+  }
+  if (cols.has('before_data')) {
+    select.push('before_data AS before');
+    aliases.push({ dbCol: 'before_data', apiKey: 'before', isJson: true });
+  }
+  if (cols.has('after_data')) {
+    select.push('after_data AS after');
+    aliases.push({ dbCol: 'after_data', apiKey: 'after', isJson: true });
+  }
+  return { select, aliases };
+}
+
+// 获取操作审计记录
+// options: { limit?, offset?, type?, target?, category?, keyword?, fromDate?, toDate? }
+function getAllChanges(options = {}) {
+  const {
+    limit = 200,
+    offset = 0,
+    type,
+    target,
+    category,
+    keyword,
+    fromDate,
+    toDate,
+  } = options;
+
+  const selectInfo = buildChangeSelect();
+  const selectCols = selectInfo.select;
+  const where = [];
+  const params = [];
+
+  if (type) {
+    where.push('type = ?');
+    params.push(type);
+  }
+  if (target) {
+    where.push('target = ?');
+    params.push(target);
+  }
+  if (category) {
+    where.push('category = ?');
+    params.push(category);
+  }
+  if (keyword) {
+    // 关键字匹配 name 或 summary
+    where.push('(name LIKE ? OR summary LIKE ?)');
+    const like = '%' + keyword + '%';
+    params.push(like, like);
+  }
+  if (fromDate) {
+    where.push('timestamp >= ?');
+    params.push(fromDate);
+  }
+  if (toDate) {
+    where.push('timestamp <= ?');
+    params.push(toDate);
+  }
+
+  const whereSql = where.length ? ' WHERE ' + where.join(' AND ') : '';
+  const sql =
+    'SELECT ' + selectCols.join(', ') + ' FROM changes' +
+    whereSql +
+    ' ORDER BY timestamp DESC LIMIT ? OFFSET ?';
+  params.push(Math.max(0, limit), Math.max(0, offset));
+
+  const rows = db.exec(sql, params);
   if (!rows.length) return [];
-  return rows[0].values.map((row) => ({
-    id: row[0],
-    type: row[1],
-    target: row[2],
-    name: row[3],
-    category: row[4],
-    amount: row[5],
-    timestamp: row[6],
-  }));
+  // sql.js rows[0].columns 是 AS 之后的最终列名
+  const colNames = rows[0].columns;
+  return rows[0].values.map((row) => {
+    const obj = {};
+    colNames.forEach((c, i) => {
+      let v = row[i];
+      if ((c === 'before' || c === 'after') && v != null) {
+        try { v = JSON.parse(v); } catch { /* keep as string */ }
+      }
+      obj[c] = v;
+    });
+    return obj;
+  });
+}
+
+// 获取操作审计总数（便于分页）
+function getChangesCount(options = {}) {
+  const { type, target, category, keyword, fromDate, toDate } = options;
+  const where = [];
+  const params = [];
+  if (type) { where.push('type = ?'); params.push(type); }
+  if (target) { where.push('target = ?'); params.push(target); }
+  if (category) { where.push('category = ?'); params.push(category); }
+  if (keyword) {
+    where.push('(name LIKE ? OR summary LIKE ?)');
+    const like = '%' + keyword + '%';
+    params.push(like, like);
+  }
+  if (fromDate) { where.push('timestamp >= ?'); params.push(fromDate); }
+  if (toDate) { where.push('timestamp <= ?'); params.push(toDate); }
+  const whereSql = where.length ? ' WHERE ' + where.join(' AND ') : '';
+  const result = db.exec('SELECT COUNT(*) FROM changes' + whereSql, params);
+  if (!result.length) return 0;
+  return Number(result[0].values[0][0]) || 0;
 }
 
 function addChange(change) {
   const id = change.id || generateId();
-  db.run(
-    'INSERT INTO changes (id, type, target, name, category, amount, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    [
-      id,
-      change.type || '',
-      change.target || '',
-      change.name || '',
-      change.category || '',
-      change.amount != null ? Number(change.amount) : 0,
-      change.timestamp || new Date().toISOString(),
-    ]
-  );
+  const cols = getColumnNames(db, 'changes');
+  // 总是尝试写入新列（schema 修复后这些列已存在）
+  const beforeData = change.before != null
+    ? (typeof change.before === 'string' ? change.before : JSON.stringify(change.before))
+    : null;
+  const afterData = change.after != null
+    ? (typeof change.after === 'string' ? change.after : JSON.stringify(change.after))
+    : null;
+  const summary = change.summary || null;
+
+  if (cols.has('before_data') && cols.has('after_data') && cols.has('summary')) {
+    db.run(
+      'INSERT INTO changes (id, type, target, name, category, amount, timestamp, summary, before_data, after_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [
+        id,
+        change.type || '',
+        change.target || '',
+        change.name || '',
+        change.category || '',
+        change.amount != null ? Number(change.amount) : 0,
+        change.timestamp || new Date().toISOString(),
+        summary,
+        beforeData,
+        afterData,
+      ]
+    );
+  } else {
+    // 兼容旧 schema
+    db.run(
+      'INSERT INTO changes (id, type, target, name, category, amount, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [
+        id,
+        change.type || '',
+        change.target || '',
+        change.name || '',
+        change.category || '',
+        change.amount != null ? Number(change.amount) : 0,
+        change.timestamp || new Date().toISOString(),
+      ]
+    );
+  }
   save();
   return { ...change, id };
 }
-
 // ========== 数据迁移：从 localStorage 导入 ==========
 
 function migrateFromLocalStorage(assets, liabilities, changes) {
@@ -369,18 +515,43 @@ function migrateFromLocalStorage(assets, liabilities, changes) {
     );
   }
   for (const c of changes) {
-    db.run(
-      'INSERT INTO changes (id, type, target, name, category, amount, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [
-        c.id,
-        c.type || '',
-        c.target || '',
-        c.name || '',
-        c.category || '',
-        c.amount != null ? Number(c.amount) : 0,
-        c.timestamp || new Date().toISOString(),
-      ]
-    );
+    const cols = getColumnNames(db, 'changes');
+    if (cols.has('before_data') && cols.has('after_data') && cols.has('summary')) {
+      const beforeData = c.before != null
+        ? (typeof c.before === 'string' ? c.before : JSON.stringify(c.before))
+        : null;
+      const afterData = c.after != null
+        ? (typeof c.after === 'string' ? c.after : JSON.stringify(c.after))
+        : null;
+      db.run(
+        'INSERT INTO changes (id, type, target, name, category, amount, timestamp, summary, before_data, after_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [
+          c.id,
+          c.type || '',
+          c.target || '',
+          c.name || '',
+          c.category || '',
+          c.amount != null ? Number(c.amount) : 0,
+          c.timestamp || new Date().toISOString(),
+          c.summary || null,
+          beforeData,
+          afterData,
+        ]
+      );
+    } else {
+      db.run(
+        'INSERT INTO changes (id, type, target, name, category, amount, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [
+          c.id,
+          c.type || '',
+          c.target || '',
+          c.name || '',
+          c.category || '',
+          c.amount != null ? Number(c.amount) : 0,
+          c.timestamp || new Date().toISOString(),
+        ]
+      );
+    }
   }
   save();
   return true;
@@ -402,5 +573,6 @@ module.exports = {
   deleteLiability,
   getAllChanges,
   addChange,
+  getChangesCount,
   migrateFromLocalStorage,
 };

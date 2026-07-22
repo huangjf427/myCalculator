@@ -174,7 +174,7 @@ export function getLiabilityDisplayName(liability: AnyLiability): string {
   }
 }
 
-// 变动记录
+// 变动记录（操作审计）
 export interface ChangeRecord {
   id: string;
   type: 'add' | 'edit' | 'delete';
@@ -183,4 +183,7 @@ export interface ChangeRecord {
   category: string;
   amount: number;
   timestamp: string;
+  summary?: string;     // 变更摘要，如 "金额 1000 → 1500"
+  before?: unknown;     // 变更前快照（资产/负债对象）
+  after?: unknown;      // 变更后快照
 }

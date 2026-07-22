@@ -6,6 +6,8 @@ import { Assets } from '@/pages/Assets';
 import { Liabilities } from '@/pages/Liabilities';
 import { Analysis } from '@/pages/Analysis';
 import { Settings } from '@/pages/Settings';
+import { Logs } from '@/pages/Logs';
+import { Audit } from '@/pages/Audit';
 import { useWealthStore } from '@/store/wealthStore';
 
 function App() {
@@ -36,6 +38,8 @@ function App() {
           <Route path="/assets" element={<Assets />} />
           <Route path="/liabilities" element={<Liabilities />} />
           <Route path="/analysis" element={<Analysis />} />
+          <Route path="/audit" element={<Audit />} />
+          <Route path="/logs" element={<Logs />} />
           <Route path="/settings" element={<Settings />} />
         </Route>
       </Routes>

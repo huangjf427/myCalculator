@@ -1,7 +1,9 @@
 node_modules
 dist
+dist-electron
+.trea
+.workbuddy
 ideas
 release
-dist-electron
 release-cache
 *.log
