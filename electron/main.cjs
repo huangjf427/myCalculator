@@ -99,6 +99,10 @@ function registerConfigHandlers() {
     logger.reloadLogDir();
     return result;
   });
+
+  // 汇率配置（与数据库同处 userData）
+  ipcMain.handle('config:getExchangeRates', () => config.getExchangeRates());
+  ipcMain.handle('config:setExchangeRates', (_e, rates) => config.setExchangeRates(rates));
 }
 
 // 注册日志 IPC 处理器

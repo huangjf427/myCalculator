@@ -31,6 +31,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getDefaultLogDir: () => ipcRenderer.invoke('config:getDefaultLogDir'),
     selectLogFolder: () => ipcRenderer.invoke('config:selectLogFolder'),
     setLogDir: (logDir) => ipcRenderer.invoke('config:setLogDir', logDir),
+    getExchangeRates: () => ipcRenderer.invoke('config:getExchangeRates'),
+    setExchangeRates: (rates) => ipcRenderer.invoke('config:setExchangeRates', rates),
   },
   // 日志操作
   logger: {

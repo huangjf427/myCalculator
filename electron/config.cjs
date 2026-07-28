@@ -104,6 +104,21 @@ function selectLogFolder() {
   return result && result.length > 0 ? result[0] : null;
 }
 
+// ========== 汇率配置 ==========
+// 读取汇率设置，返回 null 表示未设置（由渲染层使用默认值兜底）
+function getExchangeRates() {
+  const config = loadConfig();
+  return config.exchangeRates || null;
+}
+
+// 保存汇率设置（与数据库同处 userData，重装/换机迁移一致）
+function setExchangeRates(rates) {
+  const config = loadConfig();
+  config.exchangeRates = rates;
+  saveConfig(config);
+  return config;
+}
+
 module.exports = {
   loadConfig,
   saveConfig,
@@ -116,4 +131,6 @@ module.exports = {
   setLogDir,
   getDefaultLogDir,
   selectLogFolder,
+  getExchangeRates,
+  setExchangeRates,
 };

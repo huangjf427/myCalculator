@@ -17,11 +17,13 @@ All notable changes to this project will be documented in this file.
 - 修复 `npm run build` 构建错误：`src/pages/Analysis.tsx` 中 `inline-size` 改为合法 `width` 属性。
 
 ### Changed
+- 汇率持久化：Electron 模式由 `localStorage` 改为 `config.json`（与数据库同处 `userData`，重装/换机迁移一致）；浏览器模式仍用 `localStorage`。
 - 应用版本号从 `1.0.0` 升级到 `2.0.0`。
 - `getSummary()` 等汇总逻辑现在统一返回折算后的人民币金额。
 
 ### Compatibility
 - 旧版 1.0 数据库无需修改表结构即可直接使用：缺失 `currency` 字段的资产/负债默认视为 `CNY`；缺失汇率配置时使用内置默认值。
+- 新增 ESLint 9 工程化配置（`eslint.config.js` 及 `eslint`、`typescript-eslint`、`eslint-plugin-react`、`eslint-plugin-react-hooks`、`globals` 等开发依赖）。
 
 ## [1.0.0] - 2026-07-22
 

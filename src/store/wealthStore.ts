@@ -166,8 +166,9 @@ function generateId(): string {
 
 // 加载数据：Electron 模式从 SQLite 读取（含迁移），浏览器模式从 localStorage 读取
 async function loadData(): Promise<{ assets: AnyAsset[]; liabilities: AnyLiability[]; changes: ChangeRecord[]; exchangeRates: ExchangeRates }> {
-  const storedRates = loadFromStorage<ExchangeRates>(STORAGE_KEYS.EXCHANGE_RATES, {});
-  const exchangeRates: ExchangeRates = { ...DEFAULT_EXCHANGE_RATES, ...storedRates };
+  // 浏览器模式从 localStorage 兜底读取汇率；Electron 模式下优先从 config.json 读取（见下方）
+  const localRates = loadFromStorage<ExchangeRates>(STORAGE_KEYS.EXCHANGE_RATES, {});
+  let exchangeRates: ExchangeRates = { ...DEFAULT_EXCHANGE_RATES, ...localRates };
   if (isElectron) {
     try {
       // 尝试从 localStorage 迁移数据到 SQLite
@@ -192,6 +193,15 @@ async function loadData(): Promise<{ assets: AnyAsset[]; liabilities: AnyLiabili
       const assets = await electronAPI!.db.getAllAssets();
       const liabilities = await electronAPI!.db.getAllLiabilities();
       const changes = await electronAPI!.db.getAllChanges({ limit: 200 });
+      // 汇率优先从 config.json 读取（与数据库同处 userData，重装/换机迁移一致）
+      try {
+        const stored = await electronAPI!.config.getExchangeRates();
+        if (stored && Object.keys(stored).length > 0) {
+          exchangeRates = { ...DEFAULT_EXCHANGE_RATES, ...stored };
+        }
+      } catch (e) {
+        console.error('读取汇率配置失败，使用默认值', e);
+      }
       return { assets, liabilities, changes, exchangeRates };
     } catch (e) {
       console.error('数据库初始化失败，回退到 localStorage', e);
@@ -438,7 +448,11 @@ export const useWealthStore = create<WealthState>((set, get) => ({
 
   setExchangeRates: (rates) => {
     set({ exchangeRates: rates });
-    saveToStorage(STORAGE_KEYS.EXCHANGE_RATES, rates);
+    if (isElectron && electronAPI) {
+      electronAPI.config.setExchangeRates(rates).catch((e) => console.error('保存汇率配置失败', e));
+    } else {
+      saveToStorage(STORAGE_KEYS.EXCHANGE_RATES, rates);
+    }
   },
 
   getSummary: () => {

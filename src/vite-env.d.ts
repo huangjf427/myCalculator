@@ -90,6 +90,8 @@ declare global {
       getDefaultLogDir: () => Promise<string>;
       selectLogFolder: () => Promise<string | null>;
       setLogDir: (logDir: string) => Promise<{ logDir: string }>;
+      getExchangeRates: () => Promise<Record<string, number> | null>;
+      setExchangeRates: (rates: Record<string, number>) => Promise<void>;
     };
     logger: {
       listLogs: () => Promise<LogFileInfo[]>;
