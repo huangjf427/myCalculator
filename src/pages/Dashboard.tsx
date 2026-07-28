@@ -29,7 +29,7 @@ export function Dashboard() {
         otherLiability: liabilities.filter((l) => l.category === 'other_liability').reduce((s, l) => s + getLiabilityAmountInBase(l, exchangeRates), 0),
       },
     };
-  }, [assets, liabilities]);
+  }, [assets, liabilities, exchangeRates]);
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('zh-CN', {

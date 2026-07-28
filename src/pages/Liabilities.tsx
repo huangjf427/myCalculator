@@ -516,7 +516,7 @@ export function Liabilities() {
             {filteredLiabilities.length === 0 ? (
               <div className="bg-wealth-cream/50 rounded-xl p-12 border border-wealth-border text-center">
                 <p className="text-wealth-text-light font-body">
-                  暂无{categoryLabels[selectedCategory]}记录，点击"添加"开始记录
+                  暂无{categoryLabels[selectedCategory]}记录，点击&quot;添加&quot;开始记录
                 </p>
               </div>
             ) : (

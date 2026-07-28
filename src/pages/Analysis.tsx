@@ -30,7 +30,7 @@ export function Analysis() {
         otherLiability: liabilities.filter((l) => l.category === 'other_liability').reduce((s, l) => s + getLiabilityAmountInBase(l, exchangeRates), 0),
       },
     };
-  }, [assets, liabilities]);
+  }, [assets, liabilities, exchangeRates]);
 
   // 按月汇总：资产按到期日（maturityDate），无到期日则归入当前月份的次月；负债按到期/还款日
   const monthlyData = useMemo(() => {
@@ -75,7 +75,7 @@ export function Analysis() {
       assetItems: assetItemsMap.get(month) ?? [],
       liabilityItems: liabilityItemsMap.get(month) ?? [],
     }));
-  }, [assets, liabilities]);
+  }, [assets, liabilities, exchangeRates]);
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('zh-CN', {
