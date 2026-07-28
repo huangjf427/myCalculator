@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useWealthStore } from '@/store/wealthStore';
 import type { AnyAsset, AssetCategory, BankDeposit } from '@/types';
+import { getAssetAmountInBase, formatMoney } from '@/types';
 import { Printer, Filter, RotateCcw } from 'lucide-react';
 
 const categoryLabels: Record<AssetCategory, string> = {
@@ -12,6 +13,7 @@ const categoryLabels: Record<AssetCategory, string> = {
 
 export function PrintableAssetTable() {
   const assets = useWealthStore((state) => state.assets);
+  const exchangeRates = useWealthStore((state) => state.exchangeRates);
 
   const [category, setCategory] = useState<AssetCategory>('bank_deposit');
   const [institution, setInstitution] = useState('');
@@ -51,7 +53,7 @@ export function PrintableAssetTable() {
   };
 
   const institutionLabel = getInstitutionLabel(category);
-  const totalAmount = filteredAssets.reduce((sum, a) => getAmount(a) + sum, 0);
+  const totalAmount = filteredAssets.reduce((sum, a) => getAssetAmountInBase(a, exchangeRates) + sum, 0);
 
   return (
     <div className="print-section" data-print-section="assets">
@@ -178,15 +180,6 @@ function getInstitutionLabel(category: AssetCategory): string {
   }
 }
 
-function getAmount(asset: AnyAsset): number {
-  switch (asset.category) {
-    case 'bank_deposit': return asset.amount ?? 0;
-    case 'securities': return asset.currentValue ?? 0;
-    case 'fund_wealth': return asset.currentValue ?? 0;
-    case 'other_asset': return asset.currentValue ?? 0;
-  }
-}
-
 function formatCurrency(value: number): string {
   return new Intl.NumberFormat('zh-CN', {
     style: 'currency',
@@ -254,7 +247,7 @@ function renderRow(asset: AnyAsset) {
           <td className="px-4 py-3">{a.bankName}</td>
           <td className="px-4 py-3">{a.accountName}</td>
           <td className="px-4 py-3">{a.depositType === 'fixed' ? '定期' : '活期'}</td>
-          <td className="px-4 py-3 text-right">{formatCurrency(a.amount)}</td>
+          <td className="px-4 py-3 text-right">{formatMoney(a.amount, a.currency || 'CNY')}</td>
           <td className="px-4 py-3">{a.depositDate}</td>
           <td className="px-4 py-3">{a.maturityDate || '-'}</td>
         </tr>
@@ -266,10 +259,10 @@ function renderRow(asset: AnyAsset) {
         <tr key={asset.id} className="border-b border-wealth-border/50">
           <td className="px-4 py-3">{asset.institution}</td>
           <td className="px-4 py-3">{asset.accountName}</td>
-          <td className="px-4 py-3 text-right">{formatCurrency(asset.principal)}</td>
-          <td className="px-4 py-3 text-right">{formatCurrency(asset.currentValue)}</td>
+          <td className="px-4 py-3 text-right">{formatMoney(asset.principal, asset.currency || 'CNY')}</td>
+          <td className="px-4 py-3 text-right">{formatMoney(asset.currentValue, asset.currency || 'CNY')}</td>
           <td className={`px-4 py-3 text-right ${profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-            {formatCurrency(profit)}
+            {formatMoney(profit, asset.currency || 'CNY')}
           </td>
         </tr>
       );
@@ -280,10 +273,10 @@ function renderRow(asset: AnyAsset) {
           <td className="px-4 py-3">{asset.institution}</td>
           <td className="px-4 py-3">{asset.accountName}</td>
           <td className="px-4 py-3">{asset.productName}</td>
-          <td className="px-4 py-3 text-right">{formatCurrency(asset.principal)}</td>
-          <td className="px-4 py-3 text-right">{formatCurrency(asset.currentValue)}</td>
+          <td className="px-4 py-3 text-right">{formatMoney(asset.principal, asset.currency || 'CNY')}</td>
+          <td className="px-4 py-3 text-right">{formatMoney(asset.currentValue, asset.currency || 'CNY')}</td>
           <td className={`px-4 py-3 text-right ${asset.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-            {formatCurrency(asset.profit)}
+            {formatMoney(asset.profit, asset.currency || 'CNY')}
           </td>
           <td className="px-4 py-3">{asset.maturityDate || '-'}</td>
         </tr>
@@ -294,10 +287,10 @@ function renderRow(asset: AnyAsset) {
           <td className="px-4 py-3">{asset.assetName}</td>
           <td className="px-4 py-3">{asset.accountName}</td>
           <td className="px-4 py-3">{asset.productName}</td>
-          <td className="px-4 py-3 text-right">{formatCurrency(asset.principal)}</td>
-          <td className="px-4 py-3 text-right">{formatCurrency(asset.currentValue)}</td>
+          <td className="px-4 py-3 text-right">{formatMoney(asset.principal, asset.currency || 'CNY')}</td>
+          <td className="px-4 py-3 text-right">{formatMoney(asset.currentValue, asset.currency || 'CNY')}</td>
           <td className={`px-4 py-3 text-right ${asset.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-            {formatCurrency(asset.profit)}
+            {formatMoney(asset.profit, asset.currency || 'CNY')}
           </td>
           <td className="px-4 py-3">{asset.maturityDate || '-'}</td>
         </tr>

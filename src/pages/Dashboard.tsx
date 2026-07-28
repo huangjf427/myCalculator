@@ -1,31 +1,32 @@
 import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useWealthStore } from '@/store/wealthStore';
-import { getAssetAmount, getLiabilityAmount } from '@/types';
+import { getAssetAmountInBase, getLiabilityAmountInBase } from '@/types';
 import { TrendingUp, TrendingDown, Wallet, PiggyBank } from 'lucide-react';
 
 export function Dashboard() {
   const assets = useWealthStore((state) => state.assets);
   const liabilities = useWealthStore((state) => state.liabilities);
+  const exchangeRates = useWealthStore((state) => state.exchangeRates);
 
   const summary = useMemo(() => {
-    const totalAssets = assets.reduce((sum, a) => sum + getAssetAmount(a), 0);
-    const totalLiabilities = liabilities.reduce((sum, l) => sum + getLiabilityAmount(l), 0);
+    const totalAssets = assets.reduce((sum, a) => sum + getAssetAmountInBase(a, exchangeRates), 0);
+    const totalLiabilities = liabilities.reduce((sum, l) => sum + getLiabilityAmountInBase(l, exchangeRates), 0);
     return {
       totalAssets,
       totalLiabilities,
       netWorth: totalAssets - totalLiabilities,
       debtRatio: totalAssets > 0 ? totalLiabilities / totalAssets : 0,
       assetBreakdown: {
-        bankDeposit: assets.filter((a) => a.category === 'bank_deposit').reduce((s, a) => s + getAssetAmount(a), 0),
-        securities: assets.filter((a) => a.category === 'securities').reduce((s, a) => s + getAssetAmount(a), 0),
-        fundWealth: assets.filter((a) => a.category === 'fund_wealth').reduce((s, a) => s + getAssetAmount(a), 0),
-        otherAsset: assets.filter((a) => a.category === 'other_asset').reduce((s, a) => s + getAssetAmount(a), 0),
+        bankDeposit: assets.filter((a) => a.category === 'bank_deposit').reduce((s, a) => s + getAssetAmountInBase(a, exchangeRates), 0),
+        securities: assets.filter((a) => a.category === 'securities').reduce((s, a) => s + getAssetAmountInBase(a, exchangeRates), 0),
+        fundWealth: assets.filter((a) => a.category === 'fund_wealth').reduce((s, a) => s + getAssetAmountInBase(a, exchangeRates), 0),
+        otherAsset: assets.filter((a) => a.category === 'other_asset').reduce((s, a) => s + getAssetAmountInBase(a, exchangeRates), 0),
       },
       liabilityBreakdown: {
-        loan: liabilities.filter((l) => l.category === 'loan').reduce((s, l) => s + getLiabilityAmount(l), 0),
-        creditCard: liabilities.filter((l) => l.category === 'credit_card').reduce((s, l) => s + getLiabilityAmount(l), 0),
-        otherLiability: liabilities.filter((l) => l.category === 'other_liability').reduce((s, l) => s + getLiabilityAmount(l), 0),
+        loan: liabilities.filter((l) => l.category === 'loan').reduce((s, l) => s + getLiabilityAmountInBase(l, exchangeRates), 0),
+        creditCard: liabilities.filter((l) => l.category === 'credit_card').reduce((s, l) => s + getLiabilityAmountInBase(l, exchangeRates), 0),
+        otherLiability: liabilities.filter((l) => l.category === 'other_liability').reduce((s, l) => s + getLiabilityAmountInBase(l, exchangeRates), 0),
       },
     };
   }, [assets, liabilities]);

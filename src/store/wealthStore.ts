@@ -4,7 +4,7 @@ import type {
   AssetCategory, LiabilityCategory,
   CreateAssetInput, CreateLiabilityInput,
 } from '@/types';
-import { getAssetAmount, getAssetDisplayName, getLiabilityAmount, getLiabilityDisplayName } from '@/types';
+import { getAssetAmount, getAssetDisplayName, getLiabilityAmount, getLiabilityDisplayName, ExchangeRates, DEFAULT_EXCHANGE_RATES, getAssetAmountInBase, getLiabilityAmountInBase } from '@/types';
 
 // 检测是否在 Electron 环境中
 const electronAPI = typeof window !== 'undefined' ? window.electronAPI : undefined;
@@ -16,7 +16,7 @@ const AUDIT_FIELDS = [
   'bankName', 'accountName', 'institution', 'productName', 'assetName',
   'depositType', 'interestRate', 'depositDate', 'maturityDate', 'maturityAmount',
   'term', 'repaymentDate', 'startDate', 'expectedRepaymentDate',
-  'isInstallment', 'installmentAmount', 'loanName', 'notes',
+  'isInstallment', 'installmentAmount', 'loanName', 'notes', 'currency',
 ];
 
 function diffSummary(before: Record<string, unknown>, after: Record<string, unknown>): string {
@@ -144,6 +144,7 @@ const STORAGE_KEYS = {
   ASSETS: 'wealthcare_assets',
   LIABILITIES: 'wealthcare_liabilities',
   CHANGES: 'wealthcare_changes',
+  EXCHANGE_RATES: 'wealthcare_exchange_rates',
 };
 
 function loadFromStorage<T>(key: string, fallback: T): T {
@@ -164,7 +165,9 @@ function generateId(): string {
 }
 
 // 加载数据：Electron 模式从 SQLite 读取（含迁移），浏览器模式从 localStorage 读取
-async function loadData(): Promise<{ assets: AnyAsset[]; liabilities: AnyLiability[]; changes: ChangeRecord[] }> {
+async function loadData(): Promise<{ assets: AnyAsset[]; liabilities: AnyLiability[]; changes: ChangeRecord[]; exchangeRates: ExchangeRates }> {
+  const storedRates = loadFromStorage<ExchangeRates>(STORAGE_KEYS.EXCHANGE_RATES, {});
+  const exchangeRates: ExchangeRates = { ...DEFAULT_EXCHANGE_RATES, ...storedRates };
   if (isElectron) {
     try {
       // 尝试从 localStorage 迁移数据到 SQLite
@@ -189,14 +192,15 @@ async function loadData(): Promise<{ assets: AnyAsset[]; liabilities: AnyLiabili
       const assets = await electronAPI!.db.getAllAssets();
       const liabilities = await electronAPI!.db.getAllLiabilities();
       const changes = await electronAPI!.db.getAllChanges({ limit: 200 });
-      return { assets, liabilities, changes };
+      return { assets, liabilities, changes, exchangeRates };
     } catch (e) {
       console.error('数据库初始化失败，回退到 localStorage', e);
-      return {
-        assets: loadFromStorage(STORAGE_KEYS.ASSETS, []),
-        liabilities: loadFromStorage(STORAGE_KEYS.LIABILITIES, []),
-        changes: loadFromStorage(STORAGE_KEYS.CHANGES, []),
-      };
+        return {
+          assets: loadFromStorage(STORAGE_KEYS.ASSETS, []),
+          liabilities: loadFromStorage(STORAGE_KEYS.LIABILITIES, []),
+          changes: loadFromStorage(STORAGE_KEYS.CHANGES, []),
+          exchangeRates,
+        };
     }
   } else {
     // 浏览器模式：使用 localStorage
@@ -204,6 +208,7 @@ async function loadData(): Promise<{ assets: AnyAsset[]; liabilities: AnyLiabili
       assets: loadFromStorage(STORAGE_KEYS.ASSETS, []),
       liabilities: loadFromStorage(STORAGE_KEYS.LIABILITIES, []),
       changes: loadFromStorage(STORAGE_KEYS.CHANGES, []),
+      exchangeRates,
     };
   }
 }
@@ -212,10 +217,12 @@ interface WealthState {
   assets: AnyAsset[];
   liabilities: AnyLiability[];
   changes: ChangeRecord[];
+  exchangeRates: ExchangeRates;
   initialized: boolean;
 
   init: () => Promise<void>;
   reload: () => Promise<void>;
+  setExchangeRates: (rates: ExchangeRates) => void;
   // 资产操作
   addAsset: (asset: CreateAssetInput) => Promise<void>;
   updateAsset: (id: string, asset: Partial<AnyAsset>) => Promise<void>;
@@ -252,6 +259,7 @@ export const useWealthStore = create<WealthState>((set, get) => ({
   assets: [],
   liabilities: [],
   changes: [],
+  exchangeRates: { ...DEFAULT_EXCHANGE_RATES },
   initialized: false,
 
   init: async () => {
@@ -428,25 +436,31 @@ export const useWealthStore = create<WealthState>((set, get) => ({
     }));
   },
 
+  setExchangeRates: (rates) => {
+    set({ exchangeRates: rates });
+    saveToStorage(STORAGE_KEYS.EXCHANGE_RATES, rates);
+  },
+
   getSummary: () => {
-    const { assets, liabilities } = get();
-    const totalAssets = assets.reduce((sum, a) => sum + getAssetAmount(a), 0);
-    const totalLiabilities = liabilities.reduce((sum, l) => sum + getLiabilityAmount(l), 0);
+    const { assets, liabilities, exchangeRates } = get();
+    // 所有汇总均以基准币种（人民币）计价，外币资产按汇率折算
+    const totalAssets = assets.reduce((sum, a) => sum + getAssetAmountInBase(a, exchangeRates), 0);
+    const totalLiabilities = liabilities.reduce((sum, l) => sum + getLiabilityAmountInBase(l, exchangeRates), 0);
     return {
       totalAssets,
       totalLiabilities,
       netWorth: totalAssets - totalLiabilities,
       debtRatio: totalAssets > 0 ? totalLiabilities / totalAssets : 0,
       assetBreakdown: {
-        bankDeposit: assets.filter((a) => a.category === 'bank_deposit').reduce((s, a) => s + getAssetAmount(a), 0),
-        securities: assets.filter((a) => a.category === 'securities').reduce((s, a) => s + getAssetAmount(a), 0),
-        fundWealth: assets.filter((a) => a.category === 'fund_wealth').reduce((s, a) => s + getAssetAmount(a), 0),
-        otherAsset: assets.filter((a) => a.category === 'other_asset').reduce((s, a) => s + getAssetAmount(a), 0),
+        bankDeposit: assets.filter((a) => a.category === 'bank_deposit').reduce((s, a) => s + getAssetAmountInBase(a, exchangeRates), 0),
+        securities: assets.filter((a) => a.category === 'securities').reduce((s, a) => s + getAssetAmountInBase(a, exchangeRates), 0),
+        fundWealth: assets.filter((a) => a.category === 'fund_wealth').reduce((s, a) => s + getAssetAmountInBase(a, exchangeRates), 0),
+        otherAsset: assets.filter((a) => a.category === 'other_asset').reduce((s, a) => s + getAssetAmountInBase(a, exchangeRates), 0),
       },
       liabilityBreakdown: {
-        loan: liabilities.filter((l) => l.category === 'loan').reduce((s, l) => s + getLiabilityAmount(l), 0),
-        creditCard: liabilities.filter((l) => l.category === 'credit_card').reduce((s, l) => s + getLiabilityAmount(l), 0),
-        otherLiability: liabilities.filter((l) => l.category === 'other_liability').reduce((s, l) => s + getLiabilityAmount(l), 0),
+        loan: liabilities.filter((l) => l.category === 'loan').reduce((s, l) => s + getLiabilityAmountInBase(l, exchangeRates), 0),
+        creditCard: liabilities.filter((l) => l.category === 'credit_card').reduce((s, l) => s + getLiabilityAmountInBase(l, exchangeRates), 0),
+        otherLiability: liabilities.filter((l) => l.category === 'other_liability').reduce((s, l) => s + getLiabilityAmountInBase(l, exchangeRates), 0),
       },
     };
   },

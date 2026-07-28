@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useWealthStore } from '@/store/wealthStore';
 import type { AnyLiability, LiabilityCategory, Loan, CreditCard, OtherLiability, CreateLiabilityInput } from '@/types';
+import { getLiabilityAmountInBase, formatMoney } from '@/types';
 import { Plus, Edit2, Trash2, X, Filter, RotateCcw } from 'lucide-react';
 import { LoanForm } from '@/components/forms/LoanForm';
 import { CreditCardForm } from '@/components/forms/CreditCardForm';
@@ -39,6 +40,7 @@ export function Liabilities() {
   const addLiability = useWealthStore((state) => state.addLiability);
   const updateLiability = useWealthStore((state) => state.updateLiability);
   const deleteLiability = useWealthStore((state) => state.deleteLiability);
+  const exchangeRates = useWealthStore((state) => state.exchangeRates);
 
   const categoryLabels: Record<LiabilityCategory, string> = {
     loan: '贷款',
@@ -59,7 +61,7 @@ export function Liabilities() {
 
   const handleAdd = (category: LiabilityCategory) => {
     setSelectedCategory(category);
-    setFormData({ category });
+    setFormData({ category, currency: 'CNY' });
     setEditingId(null);
     setShowForm(true);
   };
@@ -73,10 +75,13 @@ export function Liabilities() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const submitData = { ...formData } as Partial<AnyLiability>;
+    // 确保 currency 不为空，兜底默认为人民币
+    if (!submitData.currency) submitData.currency = 'CNY';
     if (editingId) {
-      await updateLiability(editingId, formData);
+      await updateLiability(editingId, submitData);
     } else {
-      await addLiability(formData as CreateLiabilityInput);
+      await addLiability(submitData as CreateLiabilityInput);
     }
     setShowForm(false);
     setEditingId(null);
@@ -148,15 +153,6 @@ export function Liabilities() {
     }
 
     return true;
-  };
-
-  // 获取负债金额
-  const getLiabilityAmount = (liability: AnyLiability): number => {
-    switch (liability.category) {
-      case 'loan': return liability.liabilityAmount ?? 0;
-      case 'credit_card': return liability.amount ?? 0;
-      case 'other_liability': return liability.liabilityAmount ?? 0;
-    }
   };
 
   const filteredLiabilities = liabilities
@@ -280,7 +276,7 @@ export function Liabilities() {
     setFilterEndDate('');
   };
 
-  const totalAmount = filteredLiabilities.reduce((sum, liability) => sum + getLiabilityAmount(liability), 0);
+  const totalAmount = filteredLiabilities.reduce((sum, liability) => sum + getLiabilityAmountInBase(liability, exchangeRates), 0);
 
   const renderFormFields = () => {
     switch (selectedCategory) {
@@ -341,8 +337,8 @@ export function Liabilities() {
           <tr key={liability.id} className="hover:bg-wealth-cream/50 transition-colors">
             <td className="px-6 py-4 text-wealth-text font-medium">{loan.loanName}</td>
             <td className="px-6 py-4 text-wealth-text">{loan.accountName}</td>
-            <td className="px-6 py-4 text-wealth-text">{formatCurrency(loan.amount)}</td>
-            <td className="px-6 py-4 text-wealth-text font-semibold">{formatCurrency(loan.liabilityAmount)}</td>
+            <td className="px-6 py-4 text-wealth-text">{formatMoney(loan.amount, loan.currency || 'CNY')}</td>
+            <td className="px-6 py-4 text-wealth-text font-semibold">{formatMoney(loan.liabilityAmount, loan.currency || 'CNY')}</td>
             <td className="px-6 py-4 text-wealth-text-light">{loan.startDate}</td>
             <td className="px-6 py-4 text-wealth-text-light">{loan.expectedRepaymentDate || '-'}</td>
             <td className="px-6 py-4 text-right">
@@ -362,7 +358,7 @@ export function Liabilities() {
           <tr key={liability.id} className="hover:bg-wealth-cream/50 transition-colors">
             <td className="px-6 py-4 text-wealth-text font-medium">{card.institution}</td>
             <td className="px-6 py-4 text-wealth-text">{card.accountName}</td>
-            <td className="px-6 py-4 text-wealth-text">{formatCurrency(card.amount)}</td>
+            <td className="px-6 py-4 text-wealth-text">{formatMoney(card.amount, card.currency || 'CNY')}</td>
             <td className="px-6 py-4 text-wealth-text-light">{card.interestRate ? `${card.interestRate}%` : '-'}</td>
             <td className="px-6 py-4 text-wealth-text-light">{card.repaymentDate || '-'}</td>
             <td className="px-6 py-4 text-right">
@@ -382,8 +378,8 @@ export function Liabilities() {
           <tr key={liability.id} className="hover:bg-wealth-cream/50 transition-colors">
             <td className="px-6 py-4 text-wealth-text font-medium">{other.loanName}</td>
             <td className="px-6 py-4 text-wealth-text">{other.accountName}</td>
-            <td className="px-6 py-4 text-wealth-text">{formatCurrency(other.amount)}</td>
-            <td className="px-6 py-4 text-wealth-text font-semibold">{formatCurrency(other.liabilityAmount)}</td>
+            <td className="px-6 py-4 text-wealth-text">{formatMoney(other.amount, other.currency || 'CNY')}</td>
+            <td className="px-6 py-4 text-wealth-text font-semibold">{formatMoney(other.liabilityAmount, other.currency || 'CNY')}</td>
             <td className="px-6 py-4 text-wealth-text-light">{other.startDate}</td>
             <td className="px-6 py-4 text-wealth-text-light">{other.expectedRepaymentDate || '-'}</td>
             <td className="px-6 py-4 text-right">
@@ -495,7 +491,7 @@ export function Liabilities() {
                   </p>
                 </div>
                 <div className="text-right">
-                  <p className="text-xs text-wealth-text-light mb-1">金额合计</p>
+                  <p className="text-xs text-wealth-text-light mb-1">金额合计（人民币）</p>
                   <p className="text-xl font-bold text-wealth-dark">{formatCurrency(totalAmount)}</p>
                 </div>
               </div>

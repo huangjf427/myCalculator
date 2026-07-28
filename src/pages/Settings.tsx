@@ -1,10 +1,15 @@
 import { useEffect, useState } from 'react';
-import { FolderOpen, RotateCcw, Database, AlertTriangle, CheckCircle2, Upload, Download, ScrollText } from 'lucide-react';
+import { FolderOpen, RotateCcw, Database, AlertTriangle, CheckCircle2, Upload, Download, ScrollText, DollarSign } from 'lucide-react';
 import { useWealthStore } from '@/store/wealthStore';
+import { SUPPORTED_CURRENCIES, DEFAULT_EXCHANGE_RATES } from '@/types';
 
 export function Settings() {
   const electronAPI = typeof window !== 'undefined' ? window.electronAPI : undefined;
   const reload = useWealthStore((s) => s.reload);
+  const exchangeRates = useWealthStore((s) => s.exchangeRates);
+  const setExchangeRates = useWealthStore((s) => s.setExchangeRates);
+  const [rates, setRates] = useState<Record<string, number>>(() => ({ ...DEFAULT_EXCHANGE_RATES, ...exchangeRates }));
+  const [rateMessage, setRateMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const [dbPath, setDbPath] = useState<string>('');
   const [defaultDbPath, setDefaultDbPath] = useState<string>('');
@@ -15,7 +20,7 @@ export function Settings() {
 
   useEffect(() => {
     if (!electronAPI) {
-      setMessage({ type: 'error', text: '当前为浏览器模式，设置功能仅在桌面应用中可用。' });
+      setMessage({ type: 'info', text: '数据库与日志位置设置仅在桌面应用中可用，汇率设置可直接在此维护。' });
       return;
     }
     (async () => {
@@ -149,6 +154,16 @@ export function Settings() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSaveRates = () => {
+    setExchangeRates({ ...DEFAULT_EXCHANGE_RATES, ...rates });
+    setRateMessage({ type: 'success', text: '汇率已保存，资产汇总将按新汇率折算为人民币。' });
+  };
+  const handleResetRates = () => {
+    setRates({ ...DEFAULT_EXCHANGE_RATES });
+    setExchangeRates({ ...DEFAULT_EXCHANGE_RATES });
+    setRateMessage({ type: 'success', text: '已恢复为默认汇率。' });
   };
 
   const isDefault = dbPath === defaultDbPath;
@@ -289,6 +304,69 @@ export function Settings() {
             恢复默认位置
           </button>
         </div>
+      </section>
+
+      {/* 汇率设置 */}
+      <section className="mt-6 bg-white rounded-xl shadow-sm border border-wealth-cream p-6">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-lg bg-wealth-gold/10 flex items-center justify-center">
+            <DollarSign size={20} className="text-wealth-gold" />
+          </div>
+          <div>
+            <h3 className="font-display text-lg font-semibold text-wealth-dark">汇率设置</h3>
+            <p className="text-xs text-wealth-text-light">设置外币相对人民币的汇率（1 外币 = ? 人民币），资产/负债汇总时按汇率折算为人民币</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-4">
+          {SUPPORTED_CURRENCIES.filter((c) => c.code !== 'CNY').map((c) => (
+            <div key={c.code}>
+              <label className="block text-sm font-medium text-wealth-text mb-1">{c.label}（{c.code}）</label>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-wealth-text-light whitespace-nowrap">1 {c.code} =</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.0001"
+                  value={rates[c.code] ?? ''}
+                  onChange={(e) => setRates((prev) => ({ ...prev, [c.code]: e.target.value === '' ? 0 : parseFloat(e.target.value) }))}
+                  className="flex-1 min-w-0 px-3 py-2 text-sm border border-wealth-border rounded-lg focus:outline-none focus:ring-2 focus:ring-wealth-gold bg-white"
+                />
+                <span className="text-sm text-wealth-text-light whitespace-nowrap">元</span>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex flex-wrap gap-3">
+          <button
+            onClick={handleSaveRates}
+            className="flex items-center gap-2 px-4 py-2 bg-wealth-gold text-white rounded-lg hover:bg-wealth-gold-dark transition-colors font-medium"
+          >
+            <CheckCircle2 size={18} />
+            保存汇率
+          </button>
+          <button
+            onClick={handleResetRates}
+            className="flex items-center gap-2 px-4 py-2 bg-wealth-cream text-wealth-text rounded-lg hover:bg-wealth-cream-dark/30 transition-colors font-medium border border-wealth-cream-dark/30"
+          >
+            <RotateCcw size={18} />
+            恢复默认汇率
+          </button>
+        </div>
+
+        {rateMessage && (
+          <div
+            className={`mt-4 px-4 py-3 rounded-lg text-sm flex items-start gap-2 ${
+              rateMessage.type === 'success'
+                ? 'bg-green-50 text-green-700 border border-green-200'
+                : 'bg-red-50 text-red-700 border border-red-200'
+            }`}
+          >
+            <CheckCircle2 size={16} className="mt-0.5 flex-shrink-0" />
+            <span>{rateMessage.text}</span>
+          </div>
+        )}
       </section>
 
       <section className="mt-6 bg-amber-50 border border-amber-200 rounded-xl p-5">

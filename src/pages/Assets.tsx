@@ -1,6 +1,7 @@
 import { useState, useMemo, type ReactNode } from 'react';
 import { useWealthStore } from '@/store/wealthStore';
 import type { AnyAsset, AssetCategory, BankDeposit, Securities, FundWealth, OtherAsset, CreateAssetInput } from '@/types';
+import { getAssetAmountInBase, formatMoney } from '@/types';
 import { Plus, Edit2, Trash2, X, Filter, RotateCcw } from 'lucide-react';
 import { BankDepositForm, calcMaturityDate } from '@/components/forms/BankDepositForm';
 import { SecuritiesForm } from '@/components/forms/SecuritiesForm';
@@ -40,6 +41,7 @@ export function Assets() {
   const addAsset = useWealthStore((state) => state.addAsset);
   const updateAsset = useWealthStore((state) => state.updateAsset);
   const deleteAsset = useWealthStore((state) => state.deleteAsset);
+  const exchangeRates = useWealthStore((state) => state.exchangeRates);
 
   const categoryLabels: Record<AssetCategory, string> = {
     bank_deposit: '银行存款',
@@ -66,7 +68,7 @@ export function Assets() {
     setSelectedCategory(category);
     // 确保银行存款默认 depositType 为 'demand'，避免因未触发 select onChange
     // 导致 formData 中 depositType 为 undefined，进而导致活期筛选失效
-    setFormData({ category, ...(category === 'bank_deposit' ? { depositType: 'demand' } : {}) } as Partial<AnyAsset>);
+    setFormData({ category, currency: 'CNY', ...(category === 'bank_deposit' ? { depositType: 'demand' } : {}) } as Partial<AnyAsset>);
     setEditingId(null);
     setShowForm(true);
   };
@@ -85,6 +87,11 @@ export function Assets() {
     // 银行：确保 depositType 不为空，兜底默认为活期
     if (submitData.category === 'bank_deposit' && !(submitData as Partial<BankDeposit>).depositType) {
       (submitData as Partial<BankDeposit>).depositType = 'demand';
+    }
+
+    // 确保 currency 不为空，兜底默认为人民币
+    if (!(submitData as Partial<AnyAsset>).currency) {
+      (submitData as Partial<AnyAsset>).currency = 'CNY';
     }
 
     // 银行：计算到期日和到期金额
@@ -261,16 +268,6 @@ export function Assets() {
     return true;
   };
 
-  // 获取资产金额
-  const getAssetAmount = (asset: AnyAsset): number => {
-    switch (asset.category) {
-      case 'bank_deposit': return (asset as BankDeposit).amount ?? 0;
-      case 'securities': return (asset as Securities).currentValue ?? 0;
-      case 'fund_wealth': return (asset as FundWealth).currentValue ?? 0;
-      case 'other_asset': return (asset as OtherAsset).currentValue ?? 0;
-    }
-  };
-
   const filteredAssets = assets
     .filter((a) => a.category === selectedCategory)
     .filter((a) => {
@@ -337,7 +334,7 @@ export function Assets() {
     setFilterEndDate('');
   };
 
-  const totalAmount = filteredAssets.reduce((sum, asset) => sum + getAssetAmount(asset), 0);
+  const totalAmount = filteredAssets.reduce((sum, asset) => sum + getAssetAmountInBase(asset, exchangeRates), 0);
 
   const renderFormFields = () => {
     switch (selectedCategory) {
@@ -419,7 +416,7 @@ export function Assets() {
                 {bankAsset.depositType === 'fixed' ? '定期' : '活期'}
               </span>
             </td>
-            <td className="px-6 py-4 text-wealth-text font-semibold">{formatCurrency(bankAsset.amount)}</td>
+            <td className="px-6 py-4 text-wealth-text font-semibold">{formatMoney(bankAsset.amount, bankAsset.currency || 'CNY')}</td>
             <td className="px-6 py-4 text-wealth-text-light">{bankAsset.depositDate}</td>
             <td className="px-6 py-4 text-wealth-text-light">{bankAsset.maturityDate || '-'}</td>
             <td className="px-6 py-4 text-right">
@@ -440,11 +437,11 @@ export function Assets() {
           <tr key={asset.id} className="hover:bg-wealth-cream/50 transition-colors">
             <td className="px-6 py-4 text-wealth-text font-medium">{securitiesAsset.institution}</td>
             <td className="px-6 py-4 text-wealth-text">{securitiesAsset.accountName}</td>
-            <td className="px-6 py-4 text-wealth-text">{formatCurrency(securitiesAsset.principal)}</td>
-            <td className="px-6 py-4 text-wealth-text font-semibold">{formatCurrency(securitiesAsset.currentValue)}</td>
+            <td className="px-6 py-4 text-wealth-text">{formatMoney(securitiesAsset.principal, securitiesAsset.currency || 'CNY')}</td>
+            <td className="px-6 py-4 text-wealth-text font-semibold">{formatMoney(securitiesAsset.currentValue, securitiesAsset.currency || 'CNY')}</td>
             <td className="px-6 py-4">
               <span className={profit >= 0 ? 'text-green-600' : 'text-red-600'}>
-                {formatCurrency(profit)}
+                {formatMoney(profit, securitiesAsset.currency || 'CNY')}
               </span>
             </td>
             <td className="px-6 py-4 text-right">
@@ -466,13 +463,13 @@ export function Assets() {
             <td className="px-6 py-4 text-wealth-text font-medium">{fundAsset.institution}</td>
             <td className="px-6 py-4 text-wealth-text">{fundAsset.accountName}</td>
             <td className="px-6 py-4 text-wealth-text">{fundAsset.productName}</td>
-            <td className="px-6 py-4 text-wealth-text">{formatCurrency(fundAsset.principal)}</td>
-            <td className="px-6 py-4 text-wealth-text font-semibold">{formatCurrency(fundAsset.currentValue)}</td>
-            <td className="px-6 py-4">
-              <span className={profit >= 0 ? 'text-green-600' : 'text-red-600'}>
-                {formatCurrency(profit)}
-              </span>
-            </td>
+            <td className="px-6 py-4 text-wealth-text">{formatMoney(fundAsset.principal, fundAsset.currency || 'CNY')}</td>
+              <td className="px-6 py-4 text-wealth-text font-semibold">{formatMoney(fundAsset.currentValue, fundAsset.currency || 'CNY')}</td>
+              <td className="px-6 py-4">
+                <span className={profit >= 0 ? 'text-green-600' : 'text-red-600'}>
+                  {formatMoney(profit, fundAsset.currency || 'CNY')}
+                </span>
+              </td>
             <td className="px-6 py-4 text-wealth-text-light">{fundAsset.maturityDate || '-'}</td>
             <td className="px-6 py-4 text-right">
               <button onClick={() => handleEdit(asset)} className="text-wealth-gold hover:text-wealth-gold-dark mr-3">
@@ -493,13 +490,13 @@ export function Assets() {
             <td className="px-6 py-4 text-wealth-text font-medium">{otherAsset.assetName}</td>
             <td className="px-6 py-4 text-wealth-text">{otherAsset.accountName}</td>
             <td className="px-6 py-4 text-wealth-text">{otherAsset.productName}</td>
-            <td className="px-6 py-4 text-wealth-text">{formatCurrency(otherAsset.principal)}</td>
-            <td className="px-6 py-4 text-wealth-text font-semibold">{formatCurrency(otherAsset.currentValue)}</td>
-            <td className="px-6 py-4">
-              <span className={profit >= 0 ? 'text-green-600' : 'text-red-600'}>
-                {formatCurrency(profit)}
-              </span>
-            </td>
+            <td className="px-6 py-4 text-wealth-text">{formatMoney(otherAsset.principal, otherAsset.currency || 'CNY')}</td>
+              <td className="px-6 py-4 text-wealth-text font-semibold">{formatMoney(otherAsset.currentValue, otherAsset.currency || 'CNY')}</td>
+              <td className="px-6 py-4">
+                <span className={profit >= 0 ? 'text-green-600' : 'text-red-600'}>
+                  {formatMoney(profit, otherAsset.currency || 'CNY')}
+                </span>
+              </td>
             <td className="px-6 py-4 text-wealth-text-light">{otherAsset.maturityDate || '-'}</td>
             <td className="px-6 py-4 text-right">
               <button onClick={() => handleEdit(asset)} className="text-wealth-gold hover:text-wealth-gold-dark mr-3">
@@ -628,7 +625,7 @@ export function Assets() {
                   </p>
                 </div>
                 <div className="text-right">
-                  <p className="text-xs text-wealth-text-light mb-1">金额合计</p>
+                  <p className="text-xs text-wealth-text-light mb-1">金额合计（人民币）</p>
                   <p className="text-xl font-bold text-wealth-dark">{formatCurrency(totalAmount)}</p>
                 </div>
               </div>

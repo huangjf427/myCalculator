@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useWealthStore } from '@/store/wealthStore';
 import type { AnyLiability, LiabilityCategory } from '@/types';
+import { getLiabilityAmountInBase, formatMoney } from '@/types';
 import { Printer, Filter, RotateCcw } from 'lucide-react';
 
 const categoryLabels: Record<LiabilityCategory, string> = {
@@ -11,6 +12,7 @@ const categoryLabels: Record<LiabilityCategory, string> = {
 
 export function PrintableLiabilityTable() {
   const liabilities = useWealthStore((state) => state.liabilities);
+  const exchangeRates = useWealthStore((state) => state.exchangeRates);
 
   const [category, setCategory] = useState<LiabilityCategory>('loan');
   const [name, setName] = useState('');
@@ -43,7 +45,7 @@ export function PrintableLiabilityTable() {
   };
 
   const nameLabel = getNameLabel(category);
-  const totalAmount = filteredLiabilities.reduce((sum, l) => getAmount(l) + sum, 0);
+  const totalAmount = filteredLiabilities.reduce((sum, l) => getLiabilityAmountInBase(l, exchangeRates) + sum, 0);
 
   return (
     <div className="print-section" data-print-section="liabilities">
@@ -154,14 +156,6 @@ function getNameLabel(category: LiabilityCategory): string {
   }
 }
 
-function getAmount(liability: AnyLiability): number {
-  switch (liability.category) {
-    case 'loan': return liability.liabilityAmount ?? 0;
-    case 'credit_card': return liability.amount ?? 0;
-    case 'other_liability': return liability.liabilityAmount ?? 0;
-  }
-}
-
 function formatCurrency(value: number): string {
   return new Intl.NumberFormat('zh-CN', {
     style: 'currency',
@@ -203,7 +197,7 @@ function renderRow(liability: AnyLiability) {
       <tr key={liability.id} className="border-b border-wealth-border/50">
         <td className="px-4 py-3">{liability.institution}</td>
         <td className="px-4 py-3">{liability.accountName}</td>
-        <td className="px-4 py-3 text-right">{formatCurrency(liability.amount)}</td>
+        <td className="px-4 py-3 text-right">{formatMoney(liability.amount, liability.currency || 'CNY')}</td>
         <td className="px-4 py-3 text-right">{liability.interestRate ?? 0}%</td>
         <td className="px-4 py-3">{liability.repaymentDate || '-'}</td>
       </tr>
@@ -213,13 +207,13 @@ function renderRow(liability: AnyLiability) {
     <tr key={liability.id} className="border-b border-wealth-border/50">
       <td className="px-4 py-3">{liability.loanName}</td>
       <td className="px-4 py-3">{liability.accountName}</td>
-      <td className="px-4 py-3 text-right">{formatCurrency(liability.amount)}</td>
+      <td className="px-4 py-3 text-right">{formatMoney(liability.amount, liability.currency || 'CNY')}</td>
       <td className="px-4 py-3">{liability.startDate}</td>
-      <td className="px-4 py-3 text-right">{formatCurrency(liability.liabilityAmount)}</td>
+      <td className="px-4 py-3 text-right">{formatMoney(liability.liabilityAmount, liability.currency || 'CNY')}</td>
       <td className="px-4 py-3 text-right">{liability.interestRate ?? 0}%</td>
       <td className="px-4 py-3">{liability.expectedRepaymentDate || '-'}</td>
       <td className="px-4 py-3">{liability.isInstallment ? '是' : '否'}</td>
-      <td className="px-4 py-3 text-right">{formatCurrency(liability.installmentAmount ?? 0)}</td>
+      <td className="px-4 py-3 text-right">{formatMoney(liability.installmentAmount ?? 0, liability.currency || 'CNY')}</td>
     </tr>
   );
 }

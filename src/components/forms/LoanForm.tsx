@@ -1,4 +1,5 @@
 import type { Loan } from '@/types';
+import { CURRENCY_OPTIONS } from '@/types';
 import { FormInput, FormSelect, FormDateInput, FormTextarea, FormRow } from '@/components/common';
 
 interface LoanFormProps {
@@ -21,6 +22,15 @@ export function LoanForm({ formData, onChange }: LoanFormProps) {
           value={formData.accountName || ''}
           onChange={(value) => onChange({ ...formData, accountName: value as string })}
           required
+        />
+      </FormRow>
+      <FormRow>
+        <FormSelect
+          label="币种"
+          value={formData.currency || 'CNY'}
+          onChange={(value) => onChange({ ...formData, currency: value as string })}
+          required
+          options={CURRENCY_OPTIONS}
         />
       </FormRow>
       <FormRow>

@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useWealthStore } from '@/store/wealthStore';
-import { getAssetAmount, getLiabilityAmount, getAssetDisplayName, getLiabilityDisplayName } from '@/types';
+import { getAssetAmountInBase, getLiabilityAmountInBase, getAssetDisplayName, getLiabilityDisplayName } from '@/types';
 import type { AnyAsset, AnyLiability } from '@/types';
 import { Printer } from 'lucide-react';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart, Line } from 'recharts';
@@ -8,25 +8,26 @@ import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Toolti
 export function Analysis() {
   const assets = useWealthStore((state) => state.assets);
   const liabilities = useWealthStore((state) => state.liabilities);
+  const exchangeRates = useWealthStore((state) => state.exchangeRates);
 
   const summary = useMemo(() => {
-    const totalAssets = assets.reduce((sum, a) => sum + getAssetAmount(a), 0);
-    const totalLiabilities = liabilities.reduce((sum, l) => sum + getLiabilityAmount(l), 0);
+    const totalAssets = assets.reduce((sum, a) => sum + getAssetAmountInBase(a, exchangeRates), 0);
+    const totalLiabilities = liabilities.reduce((sum, l) => sum + getLiabilityAmountInBase(l, exchangeRates), 0);
     return {
       totalAssets,
       totalLiabilities,
       netWorth: totalAssets - totalLiabilities,
       debtRatio: totalAssets > 0 ? totalLiabilities / totalAssets : 0,
       assetBreakdown: {
-        bankDeposit: assets.filter((a) => a.category === 'bank_deposit').reduce((s, a) => s + getAssetAmount(a), 0),
-        securities: assets.filter((a) => a.category === 'securities').reduce((s, a) => s + getAssetAmount(a), 0),
-        fundWealth: assets.filter((a) => a.category === 'fund_wealth').reduce((s, a) => s + getAssetAmount(a), 0),
-        otherAsset: assets.filter((a) => a.category === 'other_asset').reduce((s, a) => s + getAssetAmount(a), 0),
+        bankDeposit: assets.filter((a) => a.category === 'bank_deposit').reduce((s, a) => s + getAssetAmountInBase(a, exchangeRates), 0),
+        securities: assets.filter((a) => a.category === 'securities').reduce((s, a) => s + getAssetAmountInBase(a, exchangeRates), 0),
+        fundWealth: assets.filter((a) => a.category === 'fund_wealth').reduce((s, a) => s + getAssetAmountInBase(a, exchangeRates), 0),
+        otherAsset: assets.filter((a) => a.category === 'other_asset').reduce((s, a) => s + getAssetAmountInBase(a, exchangeRates), 0),
       },
       liabilityBreakdown: {
-        loan: liabilities.filter((l) => l.category === 'loan').reduce((s, l) => s + getLiabilityAmount(l), 0),
-        creditCard: liabilities.filter((l) => l.category === 'credit_card').reduce((s, l) => s + getLiabilityAmount(l), 0),
-        otherLiability: liabilities.filter((l) => l.category === 'other_liability').reduce((s, l) => s + getLiabilityAmount(l), 0),
+        loan: liabilities.filter((l) => l.category === 'loan').reduce((s, l) => s + getLiabilityAmountInBase(l, exchangeRates), 0),
+        creditCard: liabilities.filter((l) => l.category === 'credit_card').reduce((s, l) => s + getLiabilityAmountInBase(l, exchangeRates), 0),
+        otherLiability: liabilities.filter((l) => l.category === 'other_liability').reduce((s, l) => s + getLiabilityAmountInBase(l, exchangeRates), 0),
       },
     };
   }, [assets, liabilities]);
@@ -45,7 +46,7 @@ export function Analysis() {
     for (const asset of assets) {
       const date = ((asset as unknown) as { maturityDate?: string }).maturityDate;
       const month = getYearMonth(date) || fallbackMonth;
-      assetMap.set(month, (assetMap.get(month) ?? 0) + getAssetAmount(asset));
+      assetMap.set(month, (assetMap.get(month) ?? 0) + getAssetAmountInBase(asset, exchangeRates));
       const list = assetItemsMap.get(month) ?? [];
       list.push(asset);
       assetItemsMap.set(month, list);
@@ -58,7 +59,7 @@ export function Analysis() {
           : ((liability as unknown) as { expectedRepaymentDate?: string }).expectedRepaymentDate;
       const month = getYearMonth(date);
       if (month) {
-        liabilityMap.set(month, (liabilityMap.get(month) ?? 0) + getLiabilityAmount(liability));
+        liabilityMap.set(month, (liabilityMap.get(month) ?? 0) + getLiabilityAmountInBase(liability, exchangeRates));
         const list = liabilityItemsMap.get(month) ?? [];
         list.push(liability);
         liabilityItemsMap.set(month, list);
@@ -117,7 +118,7 @@ export function Analysis() {
                 {isAsset ? getAssetDisplayName(it as AnyAsset) : getLiabilityDisplayName(it as AnyLiability)}
               </span>
               <span className={isAsset ? 'text-green-600' : 'text-red-600'}>
-                {formatCurrency(isAsset ? getAssetAmount(it as AnyAsset) : getLiabilityAmount(it as AnyLiability))}
+                {formatCurrency(isAsset ? getAssetAmountInBase(it as AnyAsset, exchangeRates) : getLiabilityAmountInBase(it as AnyLiability, exchangeRates))}
               </span>
             </div>
           ))}

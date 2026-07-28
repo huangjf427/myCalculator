@@ -2,8 +2,8 @@
   "name": "wealthcare",
   "productName": "WealthCare",
   "private": true,
-  "version": "1.0.0",
-  "description": "个人财产管理工具 - 银行存款、证券投资、理财基金、负债管理",
+  "version": "2.0.0",
+  "description": "个人财产管理工具 - 银行存款、证券投资、理财基金、负债管理、多币种支持",
   "author": "WealthCare",
   "type": "module",
   "main": "electron/main.cjs",
@@ -21,12 +21,16 @@
     "electron": "electron ."
   },
   "dependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.8.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "lucide-react": "^0.468.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.28.0",
     "recharts": "^2.15.0",
     "sql.js": "^1.14.1",
+    "typescript-eslint": "^8.65.0",
     "zustand": "^5.0.3"
   },
   "devDependencies": {
@@ -86,5 +90,9 @@
     "portable": {
       "artifactName": "${productName}-${version}-portable.exe"
     }
+  },
+  "allowScripts": {
+    "esbuild@0.25.12": true,
+    "electron-winstaller@5.4.0": true
   }
 }

@@ -1,5 +1,6 @@
 import type { CreditCard } from '@/types';
-import { FormInput, FormDateInput, FormTextarea, FormRow } from '@/components/common';
+import { CURRENCY_OPTIONS } from '@/types';
+import { FormInput, FormSelect, FormDateInput, FormTextarea, FormRow } from '@/components/common';
 
 interface CreditCardFormProps {
   formData: Partial<CreditCard>;
@@ -21,6 +22,15 @@ export function CreditCardForm({ formData, onChange }: CreditCardFormProps) {
           value={formData.accountName || ''}
           onChange={(value) => onChange({ ...formData, accountName: value as string })}
           required
+        />
+      </FormRow>
+      <FormRow>
+        <FormSelect
+          label="币种"
+          value={formData.currency || 'CNY'}
+          onChange={(value) => onChange({ ...formData, currency: value as string })}
+          required
+          options={CURRENCY_OPTIONS}
         />
       </FormRow>
       <FormRow>
